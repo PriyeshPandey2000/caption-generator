@@ -77,13 +77,20 @@ Get from empty repo to a working, polished Phase 1 editor that a judge can demo 
 - Wired `useEditorStore.subscribe` for autosave (browser-only, guarded).
 - Verified in browser: applying MrBeast persisted Impact font + 38 words; page reload auto-restored the project (counter + black canvas back); New Project cleared storage + returned to upload screen. Lint + build pass.
 
+### Polish pass (first-pass) — completed
+- **Fixed emphasis animation bug** in `CaptionOverlay`: an emphasized/punchline word set `transform: scale(140%) scale(125%)` — multiplying two scales (≈175%) and skipping the entrance animation. Now it's a single clean `scale(140%)` + gold + glow.
+- **Keyboard shortcuts:** press `Space` to play/pause (demo mode only, ignored while typing in inputs), and `Delete`/`Backspace` to reset the selected word's style/motion overrides back to Global.
+- **Landing empty-state polish:** added a hero ("Turn speech into animated typography") + a 4-point feature list + the upload zone + demo button, so a judge immediately understands the value proposition before doing anything.
+- **Discovery hint:** demo view shows "Space = play · drag a caption to move · drag the corner to scale · Del = reset style".
+- Verified live: landing hero + bullets render after "New Project"; `Space` toggles the play button between "Play"/"Pause" (simulated keydown since the browser-press tool errored in this session); hint line renders.
+
 ### Known issue / in progress
 - **Demo playback speed** appeared ~8× too fast during a long dev session, caused by overlapping RAF loops accumulating across HMR reloads of the same page. On a **fresh load** the loop count is exactly 1. Confirmed it's a dev-session artifact, not a product bug, but a guard (single loop / reset on play) is a cleanup candidate.
 
 ### Remaining (next sessions)
 - Demo playback single-loop hardening.
 - Resolution/bitrate/duration caps for MP4 export.
-- Polish pass (empty states, mobile, keyboard shortcuts).
+- Further polish (mobile layout audit, more presets, undo/redo).
 
 ---
 
@@ -101,3 +108,4 @@ Get from empty repo to a working, polished Phase 1 editor that a judge can demo 
 | 8 | Natural-language choreography maps to curated bundles (no LLM call in-loop) | Fast, deterministic, offline-friendly, still feels agentic | Done |
 | 9 | Autosave project to localStorage (debounced 300ms), no manual Save button | Simplest + best UX for a judge demo | Done |
 | 10 | Don't persist the source video blob/`File`; restore onto black canvas | Blob URLs/File are ephemeral/binary — too large and not meaningful across reloads | Done |
+| 11 | Emphasis punchlines render as a single scale(140%) pop (not stacked scales) | A stacked 140%×125% transform looked broken and skipped entrance motion | Done |

@@ -51,6 +51,34 @@ export default function Editor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      const isTyping =
+        el.tagName === "INPUT" ||
+        el.tagName === "TEXTAREA" ||
+        el.tagName === "SELECT" ||
+        el.isContentEditable;
+      if (isTyping) return;
+
+      if (e.code === "Space") {
+        if (isDemoMode) {
+          e.preventDefault();
+          setIsPlaying(!isPlaying);
+        }
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        const state = useEditorStore.getState();
+        for (const id of state.selectedWordIds) {
+          state.resetWordStyle(id);
+          state.resetWordMotion(id);
+        }
+        if (state.selectedWordIds.length > 0) e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isDemoMode, isPlaying, setIsPlaying]);
+
   const handleFileSelect = useCallback(
     async (file: File) => {
       setVideoFile(file);
@@ -148,7 +176,23 @@ export default function Editor() {
         <div className="flex-1 flex flex-col">
           <div className="flex-1 p-4 overflow-hidden">
             {!transcription ? (
-              <div className="relative flex flex-col items-center justify-center h-full gap-4">
+              <div className="relative h-full flex flex-col items-center justify-center gap-5 px-4">
+                <div className="text-center max-w-xl">
+                  <h2 className="text-2xl font-bold text-white">
+                    Turn speech into{" "}
+                    <span className="text-blue-500">animated typography</span>
+                  </h2>
+                  <p className="text-sm text-zinc-400 mt-2">
+                    Every aspect customisable — precision | scale | word level.
+                    But you never have to customise anything.
+                  </p>
+                  <ul className="mt-4 grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-zinc-500 text-left">
+                    <li>· Upload → styled captions in seconds</li>
+                    <li>· Drag &amp; scale — “make it big type”</li>
+                    <li>· AI choreography in plain English</li>
+                    <li>· Export MP4 / SRT / VTT — all in-browser</li>
+                  </ul>
+                </div>
                 <div className="w-full max-w-2xl">
                   <UploadZone onFileSelect={handleFileSelect} />
                 </div>
@@ -200,6 +244,9 @@ export default function Editor() {
                         >
                           Drop a video
                         </button>
+                      </div>
+                      <div className="absolute bottom-3 left-4 text-[11px] text-zinc-500">
+                        Space = play · drag a caption to move · drag the corner to scale · Del = reset style
                       </div>
                     </div>
                   </div>

@@ -142,7 +142,7 @@ function WordSpan({
   const isSpokenNow = currentTime >= word.start && currentTime < word.end;
 
   if (emphasis && emphasis.type === "scale" && isSpokenNow) {
-    animStyle.transform = `scale(${(emphasis.scaleTo || 140) / 100}) scale(${activeAnim?.type === "scale" ? (activeAnim.scaleTo || 125) / 100 : 1})`;
+    animStyle.transform = `scale(${(emphasis.scaleTo || 140) / 100})`;
     if (emphasis.color) animStyle.color = emphasis.color;
     if (emphasis.glowRadius) {
       animStyle.textShadow = `0 0 ${emphasis.glowRadius}px ${emphasis.color || "#FFD700"}`;
