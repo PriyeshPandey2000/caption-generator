@@ -7,7 +7,13 @@ import { sfxFile } from "./sfx";
 const LOOK_AHEAD_S = 1.2; // schedule this far ahead of the current time
 const BUFFER_S = 0.12; // keep at least 120ms of scheduled time in the bank
 
-type NodeWithTime = { eventStart: number; duration: number };
+// Track every live source so clearScheduled() can stop() it (a scheduled
+// AudioBufferSourceNode starts at a future time and won't die on its own).
+type NodeWithTime = {
+  eventStart: number;
+  duration: number;
+  node: AudioBufferSourceNode;
+};
 
 class SfxEngine {
   private ctx: AudioContext | null = null;
@@ -21,6 +27,9 @@ class SfxEngine {
   private lastScheduledThrough = 0;
   private lastVideoTime = 0;
   private running = false;
+  // Bumped whenever the event list is replaced so a stale loadBuffer retry
+  // can't fire a source for an event that no longer exists.
+  private eventsGeneration = 0;
 
   ensureContext(): AudioContext | null {
     if (typeof window === "undefined") return null;
@@ -61,6 +70,7 @@ class SfxEngine {
 
   setEvents(events: SfxEvent[]): void {
     this.events = events;
+    this.eventsGeneration++;
     this.clearScheduled();
   }
 
@@ -78,6 +88,12 @@ class SfxEngine {
     const ctx = this.ctx;
     if (!ctx || !this.running) return;
     this.lastVideoTime = currentVideoTime;
+
+    // After a clearScheduled the frontier resets to 0; rebase it forward so a
+    // resume/seek can't re-fire events that have already elapsed.
+    if (this.lastScheduledThrough < currentVideoTime) {
+      this.lastScheduledThrough = currentVideoTime;
+    }
     const horizon = currentVideoTime + LOOK_AHEAD_S;
 
     for (const ev of this.events) {
@@ -98,8 +114,9 @@ class SfxEngine {
   play(ev: SfxEvent): boolean {
     if (!this.ctx || !this.buffersReady) return false;
     if (!this.buffers.has(ev.sound)) {
+      const generation = this.eventsGeneration;
       void this.loadBuffer(ev.sound).then(() => {
-        if (this.running) this.play(ev);
+        if (this.running && this.eventsGeneration === generation) this.play(ev);
       });
       return false;
     }
@@ -124,24 +141,37 @@ class SfxEngine {
     if (!this.master) return false;
     src.connect(gain);
     gain.connect(this.master);
-    this.dimVoice(ev.duration || 0.2);
+    // Duck the voice from the SAME time the SFX fires, so the look-ahead
+    // window doesn't return the voice to full volume before the sound starts.
+    this.dimVoice(when, ev.duration || 0.2);
     src.start(when);
-    this.scheduled.push({ eventStart: ev.start, duration: buffer.duration || 0.2 });
+    this.scheduled.push({
+      eventStart: ev.start,
+      duration: buffer.duration || 0.2,
+      node: src,
+    });
     return true;
   }
 
   // Brief duck on the voice gain so speech stays audible over the SFX.
-  private dimVoice(durationS: number): void {
+  private dimVoice(when: number, durationS: number): void {
     if (!this.ctx || !this.voiceGain) return;
-    const now = this.ctx.currentTime;
-    this.voiceGain.gain.cancelScheduledValues(now);
-    this.voiceGain.gain.setValueAtTime(1, now);
-    this.voiceGain.gain.linearRampToValueAtTime(0.6, now + 0.02);
-    this.voiceGain.gain.setValueAtTime(0.6, now + durationS);
-    this.voiceGain.gain.linearRampToValueAtTime(1, now + durationS + 0.1);
+    const g = this.voiceGain.gain;
+    g.cancelScheduledValues(when);
+    g.setValueAtTime(1, when);
+    g.linearRampToValueAtTime(0.6, when + 0.02);
+    g.setValueAtTime(0.6, when + durationS);
+    g.linearRampToValueAtTime(1, when + durationS + 0.1);
   }
 
   clearScheduled(): void {
+    for (const s of this.scheduled) {
+      try {
+        s.node.stop();
+      } catch {
+        // already stopped or never started — ignore
+      }
+    }
     this.scheduled = [];
     this.lastScheduledThrough = 0;
   }

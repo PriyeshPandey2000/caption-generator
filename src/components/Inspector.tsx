@@ -33,15 +33,16 @@ export default function Inspector() {
 
   const sfxSettings = useEditorStore((s) => s.project.globalStyle.sfx);
   const sfxEvents = useEditorStore((s) => s.project.composition.sfxEvents);
-  const addManualSfxEvent = useEditorStore((s) => s.addManualSfxEvent);
+  const sfxOverrides = useEditorStore((s) => s.project.composition.sfxOverrides);
+  const setSfxOverride = useEditorStore((s) => s.setSfxOverride);
 
+  // Match manual events by ownership (sourceWordIds), not timestamp proximity,
+  // so selecting an adjacent word can't resolve the wrong manual event.
   const manualSfxAtWord: SfxEvent | undefined =
     selectedWord && sfxSettings.enabled
       ? sfxEvents.find(
           (e) =>
-            e.source === "manual" &&
-            selectedWord.start >= e.start - 0.2 &&
-            selectedWord.start <= e.start + (e.duration ?? 0) + 0.2
+            e.source === "manual" && (e.sourceWordIds ?? []).includes(selectedWord.id)
         )
       : undefined;
 
@@ -156,33 +157,16 @@ export default function Inspector() {
             Sound for this word
           </label>
           <select
-            value={manualSfxAtWord ? manualSfxAtWord.sound : "inherit"}
+            value={
+              (sfxOverrides && sfxOverrides[selectedWord.id]) || "inherit"
+            }
             onChange={(e) => {
               const val = e.target.value;
               if (!selectedWord) return;
-              // Remove any existing manual event on this word first.
-              const existing = useEditorStore
-                .getState()
-                .project.composition.sfxEvents.filter(
-                  (ev) =>
-                    !(
-                      ev.source === "manual" &&
-                      selectedWord.start >= ev.start - 0.2 &&
-                      selectedWord.start <= ev.start + (ev.duration ?? 0) + 0.2
-                    )
-                );
-              useEditorStore.setState((s) => ({
-                project: {
-                  ...s.project,
-                  composition: {
-                    ...s.project.composition,
-                    sfxEvents: existing,
-                  },
-                },
-              }));
-              if (val !== "inherit" && val !== "none") {
-                addManualSfxEvent(selectedWord.id, val as SfxName);
-              }
+              setSfxOverride(
+                selectedWord.id,
+                val as "inherit" | "none" | SfxName
+              );
             }}
             className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-700"
           >

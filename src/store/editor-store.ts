@@ -79,6 +79,7 @@ interface EditorState {
   setSfxOffsetMs: (offsetMs: number) => void;
   setSfxPack: (pack: SfxPackId) => void;
   regenerateSfx: () => void;
+  setSfxOverride: (wordId: string, val: "inherit" | "none" | SfxName) => void;
   addManualSfxEvent: (wordId: string, sound: SfxName) => void;
   restorePersisted: (data: {
     transcription: TranscriptionResult | null;
@@ -346,7 +347,8 @@ export const useEditorStore = create<EditorState>((set) => ({
         const autoEvents = buildSfxTimeline(
           words,
           sfx,
-          newVideoEffects.cameraEvents
+          newVideoEffects.cameraEvents,
+          s.project.composition.sfxOverrides ?? {}
         );
         sfxEvents = [
           ...sfxEvents.filter((e) => e.source !== "auto"),
@@ -530,7 +532,8 @@ export const useEditorStore = create<EditorState>((set) => ({
       if (!trans) return s;
       const sfx = { ...s.project.globalStyle.sfx, enabled: true };
       const ve = s.project.globalStyle.videoEffects;
-      const autoEvents = buildSfxTimeline(trans.words, sfx, ve.cameraEvents);
+      const overrides = s.project.composition.sfxOverrides ?? {};
+      const autoEvents = buildSfxTimeline(trans.words, sfx, ve.cameraEvents, overrides);
       const manual = s.project.composition.sfxEvents.filter(
         (e) => e.source !== "auto"
       );
@@ -553,7 +556,8 @@ export const useEditorStore = create<EditorState>((set) => ({
         ? buildSfxTimeline(
             s.project.transcription.words,
             sfx,
-            s.project.globalStyle.videoEffects.cameraEvents
+            s.project.globalStyle.videoEffects.cameraEvents,
+            s.project.composition.sfxOverrides ?? {}
           )
         : [];
       const manual = s.project.composition.sfxEvents.filter(
@@ -574,8 +578,22 @@ export const useEditorStore = create<EditorState>((set) => ({
   setSfxVolume: (volume) =>
     set((s) => {
       const sfx = { ...s.project.globalStyle.sfx, volume };
+      // Refresh the stored gain on every existing event so the Volume control
+      // takes effect immediately instead of only after an event is rebuilt.
+      const eventVolume =
+        volume === "quiet" ? 0.5 : volume === "aggressive" ? 1 : 0.75;
       return {
-        project: { ...s.project, globalStyle: { ...s.project.globalStyle, sfx } },
+        project: {
+          ...s.project,
+          globalStyle: { ...s.project.globalStyle, sfx },
+          composition: {
+            ...s.project.composition,
+            sfxEvents: s.project.composition.sfxEvents.map((e) => ({
+              ...e,
+              volume: eventVolume,
+            })),
+          },
+        },
       };
     }),
 
@@ -586,7 +604,8 @@ export const useEditorStore = create<EditorState>((set) => ({
         ? buildSfxTimeline(
             s.project.transcription.words,
             sfx,
-            s.project.globalStyle.videoEffects.cameraEvents
+            s.project.globalStyle.videoEffects.cameraEvents,
+            s.project.composition.sfxOverrides ?? {}
           )
         : [];
       const manual = s.project.composition.sfxEvents.filter(
@@ -611,7 +630,8 @@ export const useEditorStore = create<EditorState>((set) => ({
         ? buildSfxTimeline(
             s.project.transcription.words,
             sfx,
-            s.project.globalStyle.videoEffects.cameraEvents
+            s.project.globalStyle.videoEffects.cameraEvents,
+            s.project.composition.sfxOverrides ?? {}
           )
         : [];
       const manual = s.project.composition.sfxEvents.filter(
@@ -637,7 +657,8 @@ export const useEditorStore = create<EditorState>((set) => ({
       const autoEvents = buildSfxTimeline(
         trans.words,
         sfx,
-        s.project.globalStyle.videoEffects.cameraEvents
+        s.project.globalStyle.videoEffects.cameraEvents,
+        s.project.composition.sfxOverrides ?? {}
       );
       const manual = s.project.composition.sfxEvents.filter(
         (e) => e.source !== "auto"
@@ -649,6 +670,64 @@ export const useEditorStore = create<EditorState>((set) => ({
             ...s.project.composition,
             sfxEvents: [...manual, ...autoEvents],
           },
+        },
+      };
+    }),
+
+  setSfxOverride: (wordId, val) =>
+    set((s) => {
+      const trans = s.project.transcription;
+      if (!trans) return s;
+      const overrides = { ...(s.project.composition.sfxOverrides ?? {}) };
+      if (val === "inherit") delete overrides[wordId];
+      else overrides[wordId] = val;
+
+      // A word is decided manually → drop any manual event scoped to it, and
+      // regenerate auto so an overridden word never gets an automatic sound.
+      const kept = s.project.composition.sfxEvents.filter(
+        (e) => e.source !== "manual" || !(e.sourceWordIds ?? []).includes(wordId)
+      );
+      const sfx = s.project.globalStyle.sfx;
+      const autoEvents =
+        sfx.enabled && sfx.density !== "off" && trans
+          ? buildSfxTimeline(
+              trans.words,
+              sfx,
+              s.project.globalStyle.videoEffects.cameraEvents,
+              overrides
+            )
+          : [];
+
+      let sfxEvents = [...kept, ...autoEvents];
+
+      if (val !== "inherit" && val !== "none") {
+        const word = trans.words.find((w) => w.id === wordId);
+        if (word) {
+          sfxEvents = [
+            ...sfxEvents,
+            {
+              id: uuid(),
+              start: word.start + (sfx.offsetMs || 0) / 1000,
+              duration: Math.max(0.08, word.end - word.start),
+              role: "emphasis" as const,
+              sound: val,
+              volume:
+                sfx.volume === "quiet" ? 0.5 : sfx.volume === "aggressive" ? 1 : 0.75,
+              pitch: 1,
+              offsetMs: sfx.offsetMs,
+              source: "manual" as const,
+              sourceWordIds: [word.id],
+            },
+          ];
+        }
+      }
+
+      sfxEvents.sort((a, b) => a.start - b.start);
+
+      return {
+        project: {
+          ...s.project,
+          composition: { ...s.project.composition, sfxOverrides: overrides, sfxEvents },
         },
       };
     }),
@@ -709,7 +788,10 @@ export const useEditorStore = create<EditorState>((set) => ({
         // existed (e.g. videoEffects, added for the camera layer) restores
         // with a sane value instead of undefined and crashing downstream.
         globalStyle: { ...defaultGlobalStyle, ...data.globalStyle },
-        composition: data.composition || { sfxEvents: [] },
+        composition: {
+          sfxEvents: data.composition?.sfxEvents ?? [],
+          sfxOverrides: data.composition?.sfxOverrides ?? {},
+        },
         speakerStyles: data.speakerStyles,
         speakerMotions: data.speakerMotions,
         isTranscribing: false,
@@ -730,7 +812,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         videoUrl: "",
         transcription: null,
         globalStyle: { ...defaultGlobalStyle },
-        composition: { sfxEvents: [] },
+        composition: { sfxEvents: [], sfxOverrides: {} },
         speakerStyles: {},
         speakerMotions: {},
         isTranscribing: false,

@@ -26,13 +26,16 @@ export default function VideoPreview() {
   const handlePlayPause = useCallback(() => {
     if (!videoRef.current) return;
     if (videoRef.current.paused) {
+      // Resume the audio context inside the user gesture (browser autoplay
+      // policy) rather than relying on the attach effect that ran on mount.
+      if (sfxSettings.enabled) sfxEngine.ensureContext();
       videoRef.current.play();
       setIsPlaying(true);
     } else {
       videoRef.current.pause();
       setIsPlaying(false);
     }
-  }, [setIsPlaying]);
+  }, [setIsPlaying, sfxSettings.enabled]);
 
   useEffect(() => {
     const video = videoRef.current;

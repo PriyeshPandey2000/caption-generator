@@ -330,6 +330,9 @@ function SfxControl() {
       <div className="flex items-center justify-between">
         <span className="text-xs text-zinc-300">Sound on emphasis</span>
         <button
+          type="button"
+          aria-label="Toggle sound effects on emphasis"
+          aria-pressed={sfx.enabled}
           onClick={() => setSfxEnabled(!sfx.enabled)}
           className={`
             relative w-10 h-5 rounded-full transition-colors

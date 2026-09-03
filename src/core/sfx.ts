@@ -1,5 +1,4 @@
 import { Word, SfxEvent, SfxSettings, SfxPackId, SfxRole, SfxName, CameraEvent } from "./types";
-import { v4 as uuid } from "uuid";
 
 export interface SfxPackMapping {
   punchline: SfxName | null;
@@ -73,6 +72,7 @@ export function densityThreshold(density: SfxSettings["density"]): number {
 interface ScoredCandidate {
   word: Word;
   score: number;
+  role: SfxRole;
 }
 
 // Score emphasis words by emphasis strength, punchline-ness (shorter word,
@@ -109,7 +109,18 @@ function scoreCandidates(
     }
 
     const score = emphasisStrength * 0.5 + punchlineScore * 0.3 + cameraScore * 0.2;
-    candidates.push({ word, score });
+
+    // Pick the semantic role that dominates this word so the pack resolves the
+    // matching sound (punchline/cameraPunch/emphasis) instead of always firing
+    // the emphasis sound.
+    const role: SfxRole =
+      cameraScore >= 0.6
+        ? "cameraPunch"
+        : punchlineScore >= 1 && emphasisStrength >= 155
+          ? "punchline"
+          : "emphasis";
+
+    candidates.push({ word, score, role });
   }
 
   return candidates;
@@ -139,27 +150,21 @@ function clusterCandidates(
   );
 }
 
-const ROLES: Record<string, SfxRole> = {
-  hit: "punchline",
-  thump: "punchline",
-  "bass-hit": "punchline",
-  whoosh: "cameraPunch",
-  "reverse-whoosh": "cameraPunch",
-  riser: "transition",
-  "record-scratch": "transition",
-};
-
 export function buildSfxTimeline(
   words: Word[],
   settings: SfxSettings,
-  cameraEvents: CameraEvent[]
+  cameraEvents: CameraEvent[],
+  overrides: Record<string, "none" | SfxName> = {}
 ): SfxEvent[] {
   const events: SfxEvent[] = [];
 
   if (!settings.enabled || settings.density === "off") return events;
 
   const threshold = densityThreshold(settings.density);
-  let candidates = scoreCandidates(words, cameraEvents);
+  // Manually-decided words are always excluded from automatic generation.
+  let candidates = scoreCandidates(words, cameraEvents).filter(
+    (c) => !(c.word.id in overrides)
+  );
 
   if (candidates.length === 0) return events;
 
@@ -182,14 +187,14 @@ export function buildSfxTimeline(
   const clustered = clusterCandidates(candidates, 0.4);
 
   for (const cand of clustered) {
-    const sound = resolveSfx("emphasis", settings.pack);
+    const role = cand.role;
+    const sound = resolveSfx(role, settings.pack);
     if (!sound) continue;
 
-    const role = ROLES[sound] || "emphasis";
     const offsetSec = settings.offsetMs / 1000;
 
     events.push({
-      id: uuid(),
+      id: `auto:${settings.sfxSeed}:${cand.word.id}:${role}:${sound}`,
       start: Math.max(0, cand.word.start + offsetSec),
       duration: Math.max(0.08, cand.word.end - cand.word.start),
       role,

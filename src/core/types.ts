@@ -149,6 +149,10 @@ export interface SfxEvent {
 
 export interface Composition {
   sfxEvents: SfxEvent[];
+  // Per-word manual decisions ("none" = silent, or a specific sound). Any word
+  // present here is excluded from automatic generation; "none" plays nothing,
+  // a sound plays via a manual event. Absent word = "inherit" (auto).
+  sfxOverrides?: Record<string, "none" | SfxName>;
 }
 
 export type StyleOverrideLevel = "global" | "speaker" | "phrase" | "word";
