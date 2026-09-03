@@ -26,11 +26,11 @@ export default function ApiKeyInput({ onKeySet }: ApiKeyInputProps) {
         value={key}
         onChange={(e) => setKey(e.target.value)}
         placeholder="Groq API key"
-        className="px-3 py-1.5 text-xs bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-blue-500 focus:outline-none w-48"
+        className="px-3 py-1.5 text-xs bg-transparent text-white rounded-lg border border-white/15 focus:border-[#00FF66] focus:outline-none w-48 placeholder-zinc-500"
       />
       <button
         onClick={handleSave}
-        className="px-3 py-1.5 text-xs bg-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-600 transition-colors"
+        className="px-3 py-1.5 text-xs text-white bg-transparent border border-white/15 rounded-lg hover:bg-white/10 transition-colors"
       >
         {saved ? "Saved!" : "Save"}
       </button>

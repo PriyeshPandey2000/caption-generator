@@ -84,12 +84,25 @@ Get from empty repo to a working, polished Phase 1 editor that a judge can demo 
 - **Discovery hint:** demo view shows "Space = play · drag a caption to move · drag the corner to scale · Del = reset style".
 - Verified live: landing hero + bullets render after "New Project"; `Space` toggles the play button between "Play"/"Pause" (simulated keydown since the browser-press tool errored in this session); hint line renders.
 
+### MP4 export caps — verified (uncommitted work kept)
+- The working tree contains export-caps changes to `ExportPanel.tsx` (not yet committed): `MAX_EXPORT_DURATION_SEC = 90`, `MAX_EXPORT_WIDTH = 1280`, a `getVideoMetadata()` helper that reads real duration/dimensions from the source video, an early reject for videos over 90s, an aspect-preserving `scale` filter when width exceeds 1280, and bounded encode settings (`-preset ultrafast`, `-b:v 2500k`, `-maxrate 3000k`, `-bufsize 6000k`, `-c:a aac 128k`).
+- **Verified end-to-end in the browser:** generated a real 1280×720 6s clip with audio (via homebrew ffmpeg), injected it into the store alongside the demo transcription, and clicked **Export MP4**. The full pipeline ran clean to **DONE**: ffmpeg.wasm initialised, video + SRT written, `subtitles=` burn-in executed with the caps, `output.mp4` produced, and the download fired.
+- Note: a redundant always-present `-t 90` is passed even for short clips — harmless because >90s clips are rejected earlier (no trimming needed). Left intact as a safety net.
+- Temporary test seams (`window.__captionlab`, `window.__exportStatus`, a `public/testclip.mp4`) were added to drive the in-browser upload/export and **fully removed** afterward. Working tree now differs from HEAD only by the intended export-caps change.
+
+### Caption text editing — completed (Phase 1 gap: PRD "corrected")
+- **Feature:** you can now edit the actual text of any transcribed word, which was the missing piece behind the PRD's "styled, animated, **corrected**, zoomed" value-prop line.
+- Store: added `updateWordText(wordId, text)` — trims input and guards against emptying a word (falls back to the original text), updates `Word.text` in the transcription.
+- New reusable component `src/components/EditableWord.tsx`: renders the word as a span styled by the resolved style; **double-click** swaps it to a transparent input (autofocus + select-all); **Enter** or **blur** commits via `onCommit`, **Escape** cancels. In edit mode it stops propagation so it never triggers group drag.
+- Wired into **CaptionOverlay** (words over the video, matched to their resolved font/size/color/stroke so the edit field looks seamless) and **Timeline** (transcript word chips near the current time).
+- Because export (SRT/VTT/MP4 burn) reads `Word.text`, edits propagate automatically; grouping is by word id so caption groups stay intact. Autosave persists edited text.
+- **Verified:** lint clean, `next build` green (TypeScript compiles across all three wiring sites). Not yet browser-interacted but fully compiled and wired.
+
 ### Known issue / in progress
-- **Demo playback speed** appeared ~8× too fast during a long dev session, caused by overlapping RAF loops accumulating across HMR reloads of the same page. On a **fresh load** the loop count is exactly 1. Confirmed it's a dev-session artifact, not a product bug, but a guard (single loop / reset on play) is a cleanup candidate.
+- **Demo playback speed** appeared ~8× too fast during a long dev session, caused by overlapping RAF loops accumulating across HMR reloads of the same page. A single-loop guard (module-scoped ownership in `useDemoPlayback.ts`) has been added — on a **fresh load** the loop count is exactly 1; the guard self-cancels any duplicate loop a re-mount/StrictMode might create. Final browser timing verification still to run.
 
 ### Remaining (next sessions)
-- Demo playback single-loop hardening.
-- Resolution/bitrate/duration caps for MP4 export.
+- Finish/verify the in-flight neon-green visual redesign (UploadZone + hero font still pending) and confirm playback timing post-guard.
 - Further polish (mobile layout audit, more presets, undo/redo).
 
 ---
@@ -109,3 +122,4 @@ Get from empty repo to a working, polished Phase 1 editor that a judge can demo 
 | 9 | Autosave project to localStorage (debounced 300ms), no manual Save button | Simplest + best UX for a judge demo | Done |
 | 10 | Don't persist the source video blob/`File`; restore onto black canvas | Blob URLs/File are ephemeral/binary — too large and not meaningful across reloads | Done |
 | 11 | Emphasis punchlines render as a single scale(140%) pop (not stacked scales) | A stacked 140%×125% transform looked broken and skipped entrance motion | Done |
+| 12 | Words are edited inline via a reusable `EditableWord` (double-click) matched to resolved style | Seamless in-place correction that auto-propagates to export and persists | Done |

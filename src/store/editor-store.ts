@@ -42,6 +42,7 @@ interface EditorState {
   updateWordStyle: (wordId: string, style: Partial<WordStyle>) => void;
   updateWordMotion: (wordId: string, motion: Partial<WordMotion>) => void;
   updateWordTransform: (wordId: string, transform: Partial<WordTransform>) => void;
+  updateWordText: (wordId: string, text: string) => void;
   updateGlobalStyle: (style: Partial<GlobalStyle>) => void;
   updateSpeakerStyle: (speaker: string, style: Partial<WordStyle>) => void;
   updateSpeakerMotion: (speaker: string, motion: Partial<WordMotion>) => void;
@@ -168,6 +169,21 @@ export const useEditorStore = create<EditorState>((set) => ({
         w.id === wordId
           ? { ...w, transform: { ...w.transform, ...transform } }
           : w
+      );
+      return {
+        project: {
+          ...s.project,
+          transcription: { ...s.project.transcription, words },
+        },
+      };
+    }),
+
+  updateWordText: (wordId, text) =>
+    set((s) => {
+      if (!s.project.transcription) return s;
+      const clean = String(text || "").trim();
+      const words = s.project.transcription.words.map((w) =>
+        w.id === wordId ? { ...w, text: clean || w.text } : w
       );
       return {
         project: {

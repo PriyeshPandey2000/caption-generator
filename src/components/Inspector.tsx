@@ -252,7 +252,12 @@ function FieldGroup({
           step={step}
           value={typeof value === "number" ? value : (min ?? 0)}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+          style={
+            {
+              "--slider-fill": `${(((typeof value === "number" ? value : (min ?? 0)) - (min ?? 0)) / ((max ?? 100) - (min ?? 0))) * 100}%`,
+            } as React.CSSProperties
+          }
+          className="w-full"
         />
       )}
     </div>

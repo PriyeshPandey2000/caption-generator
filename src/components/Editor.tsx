@@ -140,8 +140,16 @@ export default function Editor() {
     <div className="flex flex-col h-screen bg-zinc-950 text-white">
       <header className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-900">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-bold">
-            Caption<span className="text-blue-500">Lab</span>
+          <h1 className="font-display text-lg font-bold tracking-tight">
+            Caption
+            <span
+              className="bg-clip-text text-transparent"
+              style={{
+                backgroundImage: "linear-gradient(120deg,#00FF66,#22C55E)",
+              }}
+            >
+              Lab
+            </span>
           </h1>
           {transcription && (
             <span className="text-xs text-zinc-500">
@@ -159,7 +167,7 @@ export default function Editor() {
               newProject();
             }}
             title="Start over — clears the saved project"
-            className="px-3 py-1.5 bg-zinc-800 text-zinc-300 text-sm rounded-lg hover:bg-zinc-700 transition-colors"
+            className="px-3 py-1.5 text-white bg-transparent border border-white/15 text-sm rounded-lg hover:bg-white/10 transition-colors"
           >
             New Project
           </button>
@@ -176,34 +184,45 @@ export default function Editor() {
         <div className="flex-1 flex flex-col">
           <div className="flex-1 p-4 overflow-hidden">
             {!transcription ? (
-              <div className="relative h-full flex flex-col items-center justify-center gap-5 px-4">
+              <div
+                className="relative h-full flex flex-col items-center justify-center gap-6 px-4"
+                style={{
+                  background:
+                    "radial-gradient(circle at 50% 28%, rgba(0,255,102,0.10), transparent 55%)",
+                }}
+              >
                 <div className="text-center max-w-xl">
-                  <h2 className="text-2xl font-bold text-white">
-                    Turn speech into{" "}
-                    <span className="text-blue-500">animated typography</span>
+                  <h2 className="font-display text-3xl font-extrabold tracking-tight text-white">
+                    Turn{" "}
+                    <span className="hero-word mx-1.5" style={{ animationDelay: "0s" }}>
+                      speech
+                    </span>{" "}
+                    into{" "}
+                    <span
+                      className="bg-clip-text text-transparent"
+                      style={{
+                        backgroundImage:
+                          "linear-gradient(120deg,#00FF66,#22C55E)",
+                        filter:
+                          "drop-shadow(0 0 18px rgba(0,255,102,0.35))",
+                      }}
+                    >
+                      animated typography
+                    </span>
                   </h2>
-                  <p className="text-sm text-zinc-400 mt-2">
+                  <p className="text-sm text-zinc-300 mt-2">
                     Every aspect customisable — precision | scale | word level.
                     But you never have to customise anything.
                   </p>
-                  <ul className="mt-4 grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-zinc-500 text-left">
-                    <li>· Upload → styled captions in seconds</li>
-                    <li>· Drag &amp; scale — “make it big type”</li>
-                    <li>· AI choreography in plain English</li>
-                    <li>· Export MP4 / SRT / VTT — all in-browser</li>
-                  </ul>
+                  <div className="mt-5 grid grid-cols-2 gap-3 text-left">
+                    <FeatureCard icon="upload" label="Upload → styled captions in seconds" />
+                    <FeatureCard icon="drag" label="Drag & scale — “make it big type”" />
+                    <FeatureCard icon="sparkle" label="AI choreography in plain English" />
+                    <FeatureCard icon="export" label="Export MP4 / SRT / VTT — all in-browser" />
+                  </div>
                 </div>
                 <div className="w-full max-w-2xl">
-                  <UploadZone onFileSelect={handleFileSelect} />
-                </div>
-                <div className="flex items-center gap-4 text-xs text-zinc-500">
-                  <span className="bg-zinc-800 px-3 py-1.5 rounded-full">or</span>
-                  <button
-                    onClick={loadDemo}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors font-medium"
-                  >
-                    Try it with sample captions →
-                  </button>
+                  <UploadZone onFileSelect={handleFileSelect} onDemo={loadDemo} />
                 </div>
               </div>
             ) : (
@@ -298,6 +317,26 @@ export default function Editor() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+const FEATURE_ICONS: Record<string, string> = {
+  upload: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12",
+  drag: "M7 16V4m0 0L3 8m4-4l4 4m6 8v-4m0 0l4 4m-4-4l-4 4M4 20h16",
+  sparkle: "M12 3v4m0 10v4m-9-9h4m10 0h4M6.34 6.34l2.83 2.83m5.66 5.66l2.83 2.83M6.34 17.66l2.83-2.83m5.66-5.66l2.83-2.83",
+  export: "M12 4v12m0 0l-4-4m4 4l4-4M4 20h16",
+};
+
+function FeatureCard({ icon, label }: { icon: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 transition-colors hover:border-[#00ff66]/25 hover:bg-white/[0.05]">
+      <div className="shrink-0 w-7 h-7 rounded-lg bg-[#00ff66]/10 flex items-center justify-center">
+        <svg className="w-3.5 h-3.5 text-[#00ff66]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={FEATURE_ICONS[icon]} />
+        </svg>
+      </div>
+      <span className="text-xs text-zinc-300 leading-tight">{label}</span>
     </div>
   );
 }

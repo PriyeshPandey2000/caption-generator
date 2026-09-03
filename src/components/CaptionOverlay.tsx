@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { resolveWordStyle } from "@/core/styles";
 import { Word } from "@/core/types";
+import EditableWord from "@/components/EditableWord";
 
 export default function CaptionOverlay() {
   const transcription = useEditorStore((s) => s.project.transcription);
@@ -155,17 +156,23 @@ function WordSpan({
     }
   }
 
+  const updateWordText = useEditorStore((s) => s.updateWordText);
+
   return (
-    <span
-      onClick={onSelect}
+    <EditableWord
+      text={word.text}
+      onSelect={onSelect}
+      onCommit={(t) => updateWordText(word.id, t)}
+      fieldName={`word-${word.id}`}
       className={`
         inline-block cursor-pointer select-none transition-transform
         ${
           isSelected
-            ? "ring-2 ring-blue-500 ring-offset-2 ring-offset-transparent rounded"
+            ? "ring-2 ring-[#00FF66] ring-offset-2 ring-offset-transparent rounded"
             : ""
         }
       `}
+      inputClassName="ring-2 ring-[#00FF66] rounded px-0.5"
       style={{
         fontFamily: style.fontFamily,
         fontSize: `${style.fontSize}px`,
@@ -182,9 +189,7 @@ function WordSpan({
         opacity: style.opacity,
         ...animStyle,
       }}
-    >
-      {word.text}
-    </span>
+    />
   );
 }
 

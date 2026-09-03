@@ -3,6 +3,7 @@
 import { useRef, useCallback, useMemo } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { formatTime } from "@/core/captions";
+import EditableWord from "@/components/EditableWord";
 
 export default function Timeline() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -11,6 +12,7 @@ export default function Timeline() {
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
   const selectWord = useEditorStore((s) => s.selectWord);
+  const updateWordText = useEditorStore((s) => s.updateWordText);
 
   const duration = transcription?.duration || 0;
 
@@ -92,23 +94,25 @@ export default function Timeline() {
                 currentTime >= w.start - 0.1 && currentTime <= w.end + 0.1
             )
             .map((w) => (
-              <span
+              <EditableWord
                 key={w.id}
-                onClick={() => {
+                text={w.text}
+                onSelect={() => {
                   setCurrentTime(w.start);
                   selectWord(w.id);
                 }}
+                onCommit={(t) => updateWordText(w.id, t)}
+                fieldName={`timeline-word-${w.id}`}
                 className={`
-                  text-xs px-2 py-0.5 rounded cursor-pointer transition-colors
+                  text-xs px-2 py-0.5 rounded cursor-pointer transition-colors inline-block
                   ${
                     selectedWordIds.includes(w.id)
                       ? "bg-blue-500/30 text-blue-300"
                       : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
                   }
                 `}
-              >
-                {w.text}
-              </span>
+                inputClassName="text-xs px-2 py-0.5 rounded ring-2 ring-[#00FF66]"
+              />
             ))}
         </div>
       )}

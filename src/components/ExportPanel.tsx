@@ -4,6 +4,22 @@ import { useState, useCallback } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { wordsToSRT } from "@/core/captions";
 
+const MAX_EXPORT_DURATION_SEC = 90;
+const MAX_EXPORT_WIDTH = 1280;
+
+function getVideoMetadata(url: string): Promise<{ duration: number; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      resolve({ duration: video.duration, width: video.videoWidth, height: video.videoHeight });
+      video.src = "";
+    };
+    video.onerror = () => reject(new Error("Could not read video metadata"));
+    video.src = url;
+  });
+}
+
 export default function ExportPanel() {
   const transcription = useEditorStore((s) => s.project.transcription);
   const [isExporting, setIsExporting] = useState(false);
@@ -40,6 +56,18 @@ export default function ExportPanel() {
     setProgress("Loading ffmpeg.wasm...");
 
     try {
+      const videoUrl = useEditorStore.getState().videoUrl;
+      if (!videoUrl) throw new Error("No video loaded");
+
+      setProgress("Checking video...");
+      const meta = await getVideoMetadata(videoUrl);
+      if (meta.duration > MAX_EXPORT_DURATION_SEC) {
+        setProgress(
+          `Error: video is ${Math.round(meta.duration)}s — browser export caps at ${MAX_EXPORT_DURATION_SEC}s`
+        );
+        return;
+      }
+
       const { FFmpeg } = await import("@ffmpeg/ffmpeg");
       const { fetchFile } = await import("@ffmpeg/util");
 
@@ -56,20 +84,26 @@ export default function ExportPanel() {
       setProgress("Initializing encoder...");
       await ffmpeg.load();
 
-      const videoUrl = useEditorStore.getState().videoUrl;
-      if (!videoUrl) throw new Error("No video loaded");
-
       setProgress("Loading video...");
       await ffmpeg.writeFile("input.mp4", await fetchFile(videoUrl));
 
       const srtContent = wordsToSRT(transcription.words);
       await ffmpeg.writeFile("captions.srt", new TextEncoder().encode(srtContent));
 
+      const needsScale = meta.width > MAX_EXPORT_WIDTH;
+      const scaleFilter = needsScale ? `scale='min(${MAX_EXPORT_WIDTH},iw)':-2,` : "";
+
       setProgress("Burning in captions...");
       await ffmpeg.exec([
         "-i", "input.mp4",
-        "-vf", "subtitles=captions.srt:force_style='FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2'",
-        "-c:a", "copy",
+        "-t", String(MAX_EXPORT_DURATION_SEC),
+        "-vf", `${scaleFilter}subtitles=captions.srt:force_style='FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2'`,
+        "-preset", "ultrafast",
+        "-b:v", "2500k",
+        "-maxrate", "3000k",
+        "-bufsize", "6000k",
+        "-c:a", "aac",
+        "-b:a", "128k",
         "output.mp4",
       ]);
 
@@ -99,21 +133,21 @@ export default function ExportPanel() {
       <button
         onClick={exportSRT}
         disabled={!transcription}
-        className="px-3 py-1.5 text-xs bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="px-3 py-1.5 text-xs text-white bg-transparent border border-white/15 rounded-lg hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
       >
         SRT
       </button>
       <button
         onClick={exportVTT}
         disabled={!transcription}
-        className="px-3 py-1.5 text-xs bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="px-3 py-1.5 text-xs text-white bg-transparent border border-white/15 rounded-lg hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
       >
         VTT
       </button>
       <button
         onClick={exportMP4}
         disabled={!transcription || isExporting}
-        className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="px-3 py-1.5 text-xs bg-[#00FF66] text-black font-semibold rounded-lg hover:bg-[#22C55E] disabled:opacity-40 transition-colors"
       >
         {isExporting ? progress || "Exporting..." : "Export MP4"}
       </button>
