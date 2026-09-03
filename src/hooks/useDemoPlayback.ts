@@ -10,8 +10,6 @@ export function useDemoPlayback(active: boolean) {
   useEffect(() => {
     if (!active) return;
     const duration = useEditorStore.getState().project.transcription?.duration || 0;
-    const loopId = (window as any).__demoLoops = ((window as any).__demoLoops || 0) + 1;
-    console.log("[demo] starting loop", loopId);
 
     const tick = (t: number) => {
       const state = useEditorStore.getState();

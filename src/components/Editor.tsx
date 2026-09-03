@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { parseSegmentsToWords, groupWordsIntoCaptions } from "@/core/captions";
+import { loadProjectFromStorage, clearProjectFromStorage } from "@/core/persistence";
 import UploadZone from "@/components/UploadZone";
 import VideoPreview from "@/components/VideoPreview";
 import Timeline from "@/components/Timeline";
@@ -36,9 +37,19 @@ export default function Editor() {
   const loadDemo = useEditorStore((s) => s.loadDemo);
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
+  const restorePersisted = useEditorStore((s) => s.restorePersisted);
+  const newProject = useEditorStore((s) => s.newProject);
 
   const isDemoMode = !!transcription && !videoUrl;
   useDemoPlayback(isDemoMode);
+
+  useEffect(() => {
+    const saved = loadProjectFromStorage();
+    if (saved && saved.transcription) {
+      restorePersisted(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleFileSelect = useCallback(
     async (file: File) => {
@@ -114,6 +125,16 @@ export default function Editor() {
         <div className="flex items-center gap-3">
           <ApiKeyInput onKeySet={setApiKey} />
           <ExportPanel />
+          <button
+            onClick={() => {
+              clearProjectFromStorage();
+              newProject();
+            }}
+            title="Start over — clears the saved project"
+            className="px-3 py-1.5 bg-zinc-800 text-zinc-300 text-sm rounded-lg hover:bg-zinc-700 transition-colors"
+          >
+            New Project
+          </button>
         </div>
       </header>
 

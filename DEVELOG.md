@@ -67,15 +67,23 @@ Get from empty repo to a working, polished Phase 1 editor that a judge can demo 
 - MrBeast AI choreography applied live: font → Impact/Arial Black, size → 64px, active word 1.35× gold, 4px gold stroke.
 - Capture fixed a bug where `WordSpan` self-closed without rendering `{word.text}` (captions were styled but invisible).
 
+### Project save/load (Phase 1.7) — completed
+- **Decision:** autosave the project to localStorage, debounced 300ms, triggered on any change to `project` or `groupLayouts`. No manual "Save" button needed (simplest, best UX).
+- New `src/core/persistence.ts`: framework-agnostic `saveProjectToStorage` / `loadProjectFromStorage` / `clearProjectFromStorage` under key `captionlab_project_v1`.
+- Persisted: `transcription`, `globalStyle`, `speakerStyles`, `speakerMotions`, `groupLayouts` (+ `savedAt`).
+- **Deliberately NOT persisted:** the source video blob/URL and `videoFile`. `videoUrl` is an ephemeral `blob:` URL and the `File` is binary — too large / not meaningful across reloads. On restore, a project renders on the black demo canvas (captions + styling intact), which is the correct behavior for a caption editor.
+- Store gained `restorePersisted` (applies persisted data + resets playhead/selection) and `newProject` (fresh project + clears storage).
+- `Editor` auto-restores a saved project on mount when one exists, and the header gained a **"New Project"** button that clears storage and resets.
+- Wired `useEditorStore.subscribe` for autosave (browser-only, guarded).
+- Verified in browser: applying MrBeast persisted Impact font + 38 words; page reload auto-restored the project (counter + black canvas back); New Project cleared storage + returned to upload screen. Lint + build pass.
+
 ### Known issue / in progress
 - **Demo playback speed** appeared ~8× too fast during a long dev session, caused by overlapping RAF loops accumulating across HMR reloads of the same page. On a **fresh load** the loop count is exactly 1. Confirmed it's a dev-session artifact, not a product bug, but a guard (single loop / reset on play) is a cleanup candidate.
 
 ### Remaining (next sessions)
-- Project save/load to localStorage (Phase 1.7 "project save/load").
 - Demo playback single-loop hardening.
 - Resolution/bitrate/duration caps for MP4 export.
 - Polish pass (empty states, mobile, keyboard shortcuts).
-- First commit + push.
 
 ---
 
@@ -91,3 +99,5 @@ Get from empty repo to a working, polished Phase 1 editor that a judge can demo 
 | 6 | Groq key proxied via server route, held in localStorage | Privacy + not exposing key to third parties | Done |
 | 7 | Emphasis/punchline words get an `emphasis` recipe (scale→140, gold, glow) | Punchlines pop without a keyframe editor | Done |
 | 8 | Natural-language choreography maps to curated bundles (no LLM call in-loop) | Fast, deterministic, offline-friendly, still feels agentic | Done |
+| 9 | Autosave project to localStorage (debounced 300ms), no manual Save button | Simplest + best UX for a judge demo | Done |
+| 10 | Don't persist the source video blob/`File`; restore onto black canvas | Blob URLs/File are ephemeral/binary — too large and not meaningful across reloads | Done |

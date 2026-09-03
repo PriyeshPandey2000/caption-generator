@@ -11,6 +11,7 @@ import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
 import { createDemoTranscription } from "@/core/demo";
 import { ChoreographyBundle, highlightEmphasisWords } from "@/core/choreography";
+import { saveProjectToStorage } from "@/core/persistence";
 import { v4 as uuid } from "uuid";
 
 export interface GroupLayout {
@@ -56,6 +57,14 @@ interface EditorState {
   regroupCaptions: () => void;
   setMaxWordsPerGroup: (n: number) => void;
   applyPreset: (preset: Partial<GlobalStyle>) => void;
+  restorePersisted: (data: {
+    transcription: TranscriptionResult | null;
+    globalStyle: GlobalStyle;
+    speakerStyles: Record<string, Partial<WordStyle>>;
+    speakerMotions: Record<string, Partial<WordMotion>>;
+    groupLayouts: Record<string, GroupLayout>;
+  }) => void;
+  newProject: () => void;
 }
 
 const initialState: Project = {
@@ -350,4 +359,65 @@ export const useEditorStore = create<EditorState>((set) => ({
       delete next[groupId];
       return { groupLayouts: next };
     }),
+
+  restorePersisted: (data) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        transcription: data.transcription,
+        globalStyle: data.globalStyle,
+        speakerStyles: data.speakerStyles,
+        speakerMotions: data.speakerMotions,
+        isTranscribing: false,
+        error: null,
+      },
+      groupLayouts: data.groupLayouts,
+      currentTime: 0,
+      selectedWordIds: [],
+      selectedCaptionGroupId: null,
+      isPlaying: false,
+    })),
+
+  newProject: () =>
+    set(() => ({
+      project: {
+        id: uuid(),
+        name: "Untitled Project",
+        videoUrl: "",
+        transcription: null,
+        globalStyle: { ...defaultGlobalStyle },
+        speakerStyles: {},
+        speakerMotions: {},
+        isTranscribing: false,
+        error: null,
+      },
+      groupLayouts: {},
+      currentTime: 0,
+      selectedWordIds: [],
+      selectedCaptionGroupId: null,
+      isPlaying: false,
+    })),
 }));
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+if (typeof window !== "undefined") {
+  useEditorStore.subscribe((state, prev) => {
+    if (
+      state.project === prev.project &&
+      state.groupLayouts === prev.groupLayouts
+    ) {
+      return;
+    }
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      const s = useEditorStore.getState();
+      saveProjectToStorage({
+        transcription: s.project.transcription,
+        globalStyle: s.project.globalStyle,
+        speakerStyles: s.project.speakerStyles,
+        speakerMotions: s.project.speakerMotions,
+        groupLayouts: s.groupLayouts,
+      });
+    }, 300);
+  });
+}
