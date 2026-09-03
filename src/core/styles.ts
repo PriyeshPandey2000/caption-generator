@@ -1,4 +1,4 @@
-import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle, VideoEffects } from "./types";
+import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle, VideoEffects, SfxSettings } from "./types";
 
 export const defaultWordStyle: WordStyle = {
   fontFamily: "Inter, system-ui, sans-serif",
@@ -54,12 +54,22 @@ export const defaultVideoEffects: VideoEffects = {
   outDuration: 300,
 };
 
+export const defaultSfxSettings: SfxSettings = {
+  enabled: false,
+  density: "subtle",
+  volume: "balanced",
+  offsetMs: 0,
+  pack: "creator",
+  sfxSeed: 1,
+};
+
 export const defaultGlobalStyle: GlobalStyle = {
   style: defaultWordStyle,
   motion: defaultMotion,
   transform: defaultTransform,
   maxWordsPerGroup: 4,
   videoEffects: defaultVideoEffects,
+  sfx: defaultSfxSettings,
 };
 
 export function resolveWordStyle(

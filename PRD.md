@@ -130,10 +130,60 @@ Most words produce **zero zoom** — only emphasis/punchline events trigger moti
 
 **Beat Mode (future):** "Sync camera movement to speech" — pause → zoom-out, sentence boundary → reset, speaker change → micro-pan. Architecture supports this via the same event timeline.
 
-### 2.2 Other Phase 2 items
+### 2.2 Composition — shared event layer (architecture for 2.1 + 2.3)
 
-- **Auto-SFX:** subtle whoosh/pop synced to emphasis/emoji (prebaked cue library).
-- **Audio-event tagging:** detect/stylize `[laughter]`, `[applause]`. **Status: BLOCKED** — same diarization-layer limitation as speakers; Groq's STT returns no audio-event labels. Not competition MVP; architect for later via the same `SemanticEvent`/`EffectEvent` timeline.
+Captions, camera, and SFX are all **views over a shared generated-event layer**. `GlobalStyle` holds **preferences only**; generated events live in a **`Composition`** on the Project so they can be regenerated without mutating the style object and while preserving manual edits.
+
+```text
+GlobalStyle          Composition
+ ├─ videoEffects     ├─ cameraEvents[]
+ └─ sfx (settings)   └─ sfxEvents[]
+```
+
+`source: "auto" | "manual" | "choreography"` distinguishes regenerable (auto) from user-authored (manual) events. A **Regenerate** operation replaces only `auto` events; `manual` and `choreography`-selected events persist. Generation is **deterministic** via a seed → same transcript + style + seed = same timeline (Remix = new seed).
+
+**Future audio events** (`[laughter]`, applause) plug into this same `Composition` layer as another event type — no re-architecture needed.
+
+### 2.3 Auto-SFX — AI-synced sound design ✅ Spec
+
+When an emphasis word fires, caption + camera + **sound** react together:
+```
+MOST
+ ├── caption: scale 130% + yellow
+ ├── camera:  1.08x zoom
+ └── sfx:     whoosh
+```
+
+**Key split — `role` ≠ `sound`.** Events carry a semantic `role` (`emphasis | punchline | cameraPunch | transition`); the `pack` resolves `role → actual file`. Packs never expose raw filenames.
+
+- **Packs** (`creator | cinematic | clean | meme`): each maps roles to 12-16 self-owned files in `/public/sfx/` (deterministic, clean licensing — **no** Freesound network dependency / CC0 assumption).
+  ```
+  role        creator      cinematic   clean      meme
+  punchline   hit.wav      thump.wav   (none)     bass-hit.wav
+  cameraPunch whoosh.wav   reverse-whoosh (none)  whoosh.wav
+  emphasis    pop.wav      soft-pop.wav click.wav pop.wav
+  ```
+- **Density** (renamed, no "Max"): `off | subtle | balanced | energetic | chaotic` → top 0/10/25/40/50% of emphasis words scored.
+- **Seeded generation**: `buildSfxTimeline(words, sfxSettings, seed)` — deterministic. Score each emphasis word (`emphasisStrength*0.5 + punchline*0.3 + cameraEvent*0.2`), **cluster** nearby hits (<~400ms, e.g. `MOST IMPORTANT THING` → ONE reaction) instead of a blunt 250ms drop rule.
+
+**Audio engine** (`src/core/audio.ts`):
+- One shared `AudioContext`, created + resumed **on first Play** (browser autoplay rules).
+- **Windowed look-ahead scheduler** (~1-2s ahead, ~200ms buffer), not the whole video — clean on seek/pause/regenerate. Invariant: **video time = truth, AudioContext time = clock**; accounts for `playbackRate`.
+- Lazy `decodeAudioData` of pack files on first enable.
+- **Ducking via the audio graph, not `<video>.volume`**: route `<video>` → `MediaElementSource → voice Gain → Master`, and SFX → own Gain → Master. Duck lowers the **voice gain** (~−12dB) during SFX so speech stays audible. (Local upload = same-origin, avoids MediaElementSource cross-origin limits.)
+
+**UI:**
+- Presets panel — "Sound Effects": toggle + density (Off/Subtle/Balanced/Energetic/Chaotic) + volume (Quiet/Balanced/Aggressive) + timing offset (−100/0/+100) + **Regenerate Effects** (replaces only `auto` events).
+- **SFX timeline row**: under caption/camera rows, clickable `●` chips → edit volume/timing/sound/pitch or Delete. Turns "AI toy" into an editor.
+- Inspector (per word): Sound dropdown — `Inherit` (let choreography regenerate) / `None` (explicitly silent) / `Auto` / `Specific sound`. `Inherit` ≠ `None`.
+
+**Export:** consumes the **same `SfxEvent[]`** via ffmpeg `adelay/volume/amix` (no Web Audio → WAV capture round-trip). Preview (Web Audio) and export (ffmpeg) share event data, separate renderers.
+
+**Build order:** types → sfx.ts → audio.ts → store/composition → public files → choreography wiring → UI → verify → export mix.
+
+### 2.4 Other Phase 2 items
+
+- **Audio-event tagging:** detect/stylize `[laughter]`, `[applause]`. **Status: BLOCKED** — same diarization-layer limitation as speakers; Groq's STT returns no audio-event labels. Not competition MVP; architect for later via the same `Composition` event layer (§2.2).
 - **Speaker-aware styling:** colorful per-speaker split. **Status: BLOCKED** — see §5; requires manual assignment UI or a third-party diarization service with its own API key. The styling infrastructure (`Word.speaker`, `speakerStyles`, `speakerMotions`, `resolveWordStyle`) is already built and dormant.
 
 ---

@@ -87,6 +87,7 @@ export interface GlobalStyle {
   transform: WordTransform;
   maxWordsPerGroup: number;
   videoEffects: VideoEffects;
+  sfx: SfxSettings;
 }
 
 export interface CameraEvent {
@@ -106,6 +107,50 @@ export interface VideoEffects {
   outDuration: number;
 }
 
+export type SfxDensity = "off" | "subtle" | "balanced" | "energetic" | "chaotic";
+export type SfxVolume = "quiet" | "balanced" | "aggressive";
+export type SfxPackId = "creator" | "cinematic" | "clean" | "meme";
+export type SfxRole = "emphasis" | "punchline" | "cameraPunch" | "transition";
+export type SfxName =
+  | "whoosh"
+  | "reverse-whoosh"
+  | "pop"
+  | "hit"
+  | "ding"
+  | "riser"
+  | "snap"
+  | "thump"
+  | "click"
+  | "soft-pop"
+  | "bass-hit"
+  | "record-scratch";
+
+export interface SfxSettings {
+  enabled: boolean;
+  density: SfxDensity;
+  volume: SfxVolume;
+  offsetMs: number;
+  pack: SfxPackId;
+  sfxSeed: number;
+}
+
+export interface SfxEvent {
+  id: string;
+  start: number;
+  duration?: number;
+  role: SfxRole;
+  sound: SfxName;
+  volume: number;
+  pitch?: number;
+  offsetMs?: number;
+  source: "auto" | "manual" | "choreography";
+  sourceWordIds?: string[];
+}
+
+export interface Composition {
+  sfxEvents: SfxEvent[];
+}
+
 export type StyleOverrideLevel = "global" | "speaker" | "phrase" | "word";
 
 export interface Project {
@@ -115,6 +160,7 @@ export interface Project {
   videoFile?: File;
   transcription: TranscriptionResult | null;
   globalStyle: GlobalStyle;
+  composition: Composition;
   speakerStyles: Record<string, Partial<WordStyle>>;
   speakerMotions: Record<string, Partial<WordMotion>>;
   isTranscribing: boolean;

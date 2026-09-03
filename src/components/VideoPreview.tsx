@@ -4,6 +4,7 @@ import { useRef, useEffect, useCallback } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import CaptionOverlay from "./CaptionOverlay";
 import { sampleZoom } from "@/core/zoom";
+import { sfxEngine } from "@/core/audio";
 
 export default function VideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -13,6 +14,8 @@ export default function VideoPreview() {
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const videoEffects = useEditorStore((s) => s.project.globalStyle.videoEffects);
+  const sfxSettings = useEditorStore((s) => s.project.globalStyle.sfx);
+  const sfxEvents = useEditorStore((s) => s.project.composition.sfxEvents);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) {
@@ -51,7 +54,17 @@ export default function VideoPreview() {
     return () => window.removeEventListener("keydown", handleKeydown);
   }, [handlePlayPause]);
 
-  // RAF-driven camera zoom
+  // Audio engine: attach video, feed events + settings, preload sounds.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl) return;
+    sfxEngine.attachVideo(video);
+    sfxEngine.setEvents(sfxEvents);
+    const names = Array.from(new Set(sfxEvents.map((e) => e.sound)));
+    if (names.length) sfxEngine.preload(names);
+  }, [videoUrl, sfxEvents]);
+
+  // RAF-driven camera zoom + SFX scheduling
   useEffect(() => {
     const video = videoRef.current;
     const zoomEl = zoomRef.current;
@@ -60,26 +73,31 @@ export default function VideoPreview() {
     let rafId: number;
 
     const tick = () => {
-      if (
-        isPlaying &&
-        videoEffects.cameraEvents.length > 0 &&
-        !video.paused
-      ) {
-        const scale = sampleZoom(
-          video.currentTime,
-          videoEffects.cameraEvents,
-          videoEffects
-        );
-        zoomEl.style.transform = `scale(${scale})`;
+      if (isPlaying && !video.paused) {
+        if (videoEffects.cameraEvents.length > 0) {
+          const scale = sampleZoom(
+            video.currentTime,
+            videoEffects.cameraEvents,
+            videoEffects
+          );
+          zoomEl.style.transform = `scale(${scale})`;
+        }
+        if (sfxSettings.enabled && sfxEvents.length > 0) {
+          sfxEngine.setRunning(true);
+          sfxEngine.scheduleAhead(video.currentTime);
+        } else {
+          sfxEngine.setRunning(false);
+        }
       } else {
         zoomEl.style.transform = "scale(1)";
+        sfxEngine.setRunning(false);
       }
       rafId = requestAnimationFrame(tick);
     };
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [isPlaying, videoEffects]);
+  }, [isPlaying, videoEffects, sfxSettings.enabled, sfxEvents]);
 
   if (!videoUrl) return null;
 

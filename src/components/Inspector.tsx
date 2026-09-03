@@ -1,7 +1,7 @@
 "use client";
 
 import { useEditorStore } from "@/store/editor-store";
-import { WordStyle, WordMotion, AnimationRecipe } from "@/core/types";
+import { WordStyle, WordMotion, AnimationRecipe, SfxName, SfxEvent } from "@/core/types";
 
 export default function Inspector() {
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
@@ -30,6 +30,20 @@ export default function Inspector() {
         (e) => e.source === "manual" && selectedWord.start >= e.start && selectedWord.start <= e.end
       )
     : false;
+
+  const sfxSettings = useEditorStore((s) => s.project.globalStyle.sfx);
+  const sfxEvents = useEditorStore((s) => s.project.composition.sfxEvents);
+  const addManualSfxEvent = useEditorStore((s) => s.addManualSfxEvent);
+
+  const manualSfxAtWord: SfxEvent | undefined =
+    selectedWord && sfxSettings.enabled
+      ? sfxEvents.find(
+          (e) =>
+            e.source === "manual" &&
+            selectedWord.start >= e.start - 0.2 &&
+            selectedWord.start <= e.start + (e.duration ?? 0) + 0.2
+        )
+      : undefined;
 
   if (!selectedWord) {
     return (
@@ -128,9 +142,83 @@ export default function Inspector() {
           </button>
         ))}
       </div>
+
+      <h4 className="text-xs font-medium text-zinc-400 mt-6 mb-2">
+        Sound FX
+      </h4>
+      {!sfxSettings.enabled ? (
+        <p className="text-[10px] text-zinc-600">
+          Enable Sound FX in the Presets panel to add sounds to words.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <label className="text-xs text-zinc-500 block mb-1">
+            Sound for this word
+          </label>
+          <select
+            value={manualSfxAtWord ? manualSfxAtWord.sound : "inherit"}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (!selectedWord) return;
+              // Remove any existing manual event on this word first.
+              const existing = useEditorStore
+                .getState()
+                .project.composition.sfxEvents.filter(
+                  (ev) =>
+                    !(
+                      ev.source === "manual" &&
+                      selectedWord.start >= ev.start - 0.2 &&
+                      selectedWord.start <= ev.start + (ev.duration ?? 0) + 0.2
+                    )
+                );
+              useEditorStore.setState((s) => ({
+                project: {
+                  ...s.project,
+                  composition: {
+                    ...s.project.composition,
+                    sfxEvents: existing,
+                  },
+                },
+              }));
+              if (val !== "inherit" && val !== "none") {
+                addManualSfxEvent(selectedWord.id, val as SfxName);
+              }
+            }}
+            className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-700"
+          >
+            <option value="inherit">Inherit (auto)</option>
+            <option value="none">None (silent)</option>
+            {SFX_NAMES.map((n) => (
+              <option key={n} value={n}>
+                {n.replace(/-/g, " ")}
+              </option>
+            ))}
+          </select>
+          <p className="text-[10px] text-zinc-600">
+            Pack: {sfxSettings.pack} — {manualSfxAtWord
+              ? `"${manualSfxAtWord.sound.replace(/-/g, " ")}"`
+              : "playing pack role"}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
+
+const SFX_NAMES: SfxName[] = [
+  "whoosh",
+  "reverse-whoosh",
+  "pop",
+  "hit",
+  "ding",
+  "riser",
+  "snap",
+  "thump",
+  "click",
+  "soft-pop",
+  "bass-hit",
+  "record-scratch",
+];
 
 function StyleControls({
   style,

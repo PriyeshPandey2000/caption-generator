@@ -3,6 +3,7 @@ import {
   GlobalStyle,
   WordStyle,
   WordMotion,
+  Composition,
 } from "@/core/types";
 
 const STORAGE_KEY = "captionlab_project_v1";
@@ -16,6 +17,7 @@ export interface PersistedGroupLayout {
 export interface PersistedProject {
   transcription: TranscriptionResult | null;
   globalStyle: GlobalStyle;
+  composition?: Composition;
   speakerStyles: Record<string, Partial<WordStyle>>;
   speakerMotions: Record<string, Partial<WordMotion>>;
   groupLayouts: Record<string, PersistedGroupLayout>;

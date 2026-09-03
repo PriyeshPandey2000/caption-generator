@@ -6,6 +6,11 @@ import {
   WordTransform,
   GlobalStyle,
   TranscriptionResult,
+  SfxDensity,
+  SfxVolume,
+  SfxPackId,
+  SfxName,
+  Composition,
 } from "@/core/types";
 import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
@@ -18,6 +23,7 @@ import {
   sliderIntensityToScale,
   fractionalIntensityToScale,
 } from "@/core/zoom";
+import { buildSfxTimeline } from "@/core/sfx";
 import { v4 as uuid } from "uuid";
 
 export interface GroupLayout {
@@ -67,9 +73,17 @@ interface EditorState {
   toggleCameraMovement: (enabled: boolean) => void;
   setCameraIntensity: (intensity: number) => void;
   addManualCameraEvent: (wordId: string, intensity: number) => void;
+  setSfxEnabled: (enabled: boolean) => void;
+  setSfxDensity: (density: SfxDensity) => void;
+  setSfxVolume: (volume: SfxVolume) => void;
+  setSfxOffsetMs: (offsetMs: number) => void;
+  setSfxPack: (pack: SfxPackId) => void;
+  regenerateSfx: () => void;
+  addManualSfxEvent: (wordId: string, sound: SfxName) => void;
   restorePersisted: (data: {
     transcription: TranscriptionResult | null;
     globalStyle: GlobalStyle;
+    composition?: Composition;
     speakerStyles: Record<string, Partial<WordStyle>>;
     speakerMotions: Record<string, Partial<WordMotion>>;
     groupLayouts: Record<string, GroupLayout>;
@@ -83,6 +97,7 @@ const initialState: Project = {
   videoUrl: "",
   transcription: null,
   globalStyle: { ...defaultGlobalStyle },
+  composition: { sfxEvents: [] },
   speakerStyles: {},
   speakerMotions: {},
   isTranscribing: false,
@@ -300,7 +315,11 @@ export const useEditorStore = create<EditorState>((set) => ({
       });
 
       const ve = s.project.globalStyle.videoEffects;
+      let sfx = s.project.globalStyle.sfx;
       let newVideoEffects = ve;
+      let sfxEvents = s.project.composition.sfxEvents.filter(
+        (e) => e.source !== "auto"
+      );
 
       if (bundle.cameraMovement) {
         if (bundle.cameraMovement.enabled) {
@@ -318,14 +337,33 @@ export const useEditorStore = create<EditorState>((set) => ({
         }
       }
 
+      if (bundle.sfx) {
+        sfx = { ...sfx, ...bundle.sfx };
+      }
+
+      // Rebuild auto SFX from the (possibly re-emphasized) words + settings.
+      if (bundle.sfx?.enabled !== false || sfx.enabled) {
+        const autoEvents = buildSfxTimeline(
+          words,
+          sfx,
+          newVideoEffects.cameraEvents
+        );
+        sfxEvents = [
+          ...sfxEvents.filter((e) => e.source !== "auto"),
+          ...autoEvents,
+        ];
+      }
+
       return {
         project: {
           ...s.project,
           globalStyle: {
             ...s.project.globalStyle,
             ...bundle.global,
+            sfx,
             videoEffects: newVideoEffects,
           },
+          composition: { ...s.project.composition, sfxEvents },
           transcription: { ...trans, words },
         },
       };
@@ -469,6 +507,184 @@ export const useEditorStore = create<EditorState>((set) => ({
       };
     }),
 
+  setSfxEnabled: (enabled) =>
+    set((s) => {
+      if (!enabled) {
+        return {
+          project: {
+            ...s.project,
+            globalStyle: {
+              ...s.project.globalStyle,
+              sfx: { ...s.project.globalStyle.sfx, enabled: false },
+            },
+            composition: {
+              ...s.project.composition,
+              sfxEvents: s.project.composition.sfxEvents.filter(
+                (e) => e.source !== "auto"
+              ),
+            },
+          },
+        };
+      }
+      const trans = s.project.transcription;
+      if (!trans) return s;
+      const sfx = { ...s.project.globalStyle.sfx, enabled: true };
+      const ve = s.project.globalStyle.videoEffects;
+      const autoEvents = buildSfxTimeline(trans.words, sfx, ve.cameraEvents);
+      const manual = s.project.composition.sfxEvents.filter(
+        (e) => e.source !== "auto"
+      );
+      return {
+        project: {
+          ...s.project,
+          globalStyle: { ...s.project.globalStyle, sfx },
+          composition: {
+            ...s.project.composition,
+            sfxEvents: [...manual, ...autoEvents],
+          },
+        },
+      };
+    }),
+
+  setSfxDensity: (density) =>
+    set((s) => {
+      const sfx = { ...s.project.globalStyle.sfx, density };
+      const autoEvents = s.project.transcription
+        ? buildSfxTimeline(
+            s.project.transcription.words,
+            sfx,
+            s.project.globalStyle.videoEffects.cameraEvents
+          )
+        : [];
+      const manual = s.project.composition.sfxEvents.filter(
+        (e) => e.source !== "auto"
+      );
+      return {
+        project: {
+          ...s.project,
+          globalStyle: { ...s.project.globalStyle, sfx },
+          composition: {
+            ...s.project.composition,
+            sfxEvents: [...manual, ...autoEvents],
+          },
+        },
+      };
+    }),
+
+  setSfxVolume: (volume) =>
+    set((s) => {
+      const sfx = { ...s.project.globalStyle.sfx, volume };
+      return {
+        project: { ...s.project, globalStyle: { ...s.project.globalStyle, sfx } },
+      };
+    }),
+
+  setSfxOffsetMs: (offsetMs) =>
+    set((s) => {
+      const sfx = { ...s.project.globalStyle.sfx, offsetMs };
+      const autoEvents = s.project.transcription
+        ? buildSfxTimeline(
+            s.project.transcription.words,
+            sfx,
+            s.project.globalStyle.videoEffects.cameraEvents
+          )
+        : [];
+      const manual = s.project.composition.sfxEvents.filter(
+        (e) => e.source !== "auto"
+      );
+      return {
+        project: {
+          ...s.project,
+          globalStyle: { ...s.project.globalStyle, sfx },
+          composition: {
+            ...s.project.composition,
+            sfxEvents: [...manual, ...autoEvents],
+          },
+        },
+      };
+    }),
+
+  setSfxPack: (pack) =>
+    set((s) => {
+      const sfx = { ...s.project.globalStyle.sfx, pack };
+      const autoEvents = s.project.transcription
+        ? buildSfxTimeline(
+            s.project.transcription.words,
+            sfx,
+            s.project.globalStyle.videoEffects.cameraEvents
+          )
+        : [];
+      const manual = s.project.composition.sfxEvents.filter(
+        (e) => e.source !== "auto"
+      );
+      return {
+        project: {
+          ...s.project,
+          globalStyle: { ...s.project.globalStyle, sfx },
+          composition: {
+            ...s.project.composition,
+            sfxEvents: [...manual, ...autoEvents],
+          },
+        },
+      };
+    }),
+
+  regenerateSfx: () =>
+    set((s) => {
+      const trans = s.project.transcription;
+      if (!trans) return s;
+      const sfx = s.project.globalStyle.sfx;
+      const autoEvents = buildSfxTimeline(
+        trans.words,
+        sfx,
+        s.project.globalStyle.videoEffects.cameraEvents
+      );
+      const manual = s.project.composition.sfxEvents.filter(
+        (e) => e.source !== "auto"
+      );
+      return {
+        project: {
+          ...s.project,
+          composition: {
+            ...s.project.composition,
+            sfxEvents: [...manual, ...autoEvents],
+          },
+        },
+      };
+    }),
+
+  addManualSfxEvent: (wordId, sound) =>
+    set((s) => {
+      const trans = s.project.transcription;
+      if (!trans) return s;
+      const word = trans.words.find((w) => w.id === wordId);
+      if (!word) return s;
+      const sfx = s.project.globalStyle.sfx;
+      const event = {
+        id: uuid(),
+        start: word.start + (sfx.offsetMs || 0) / 1000,
+        duration: Math.max(0.08, word.end - word.start),
+        role: "emphasis" as const,
+        sound,
+        volume: sfx.volume === "quiet" ? 0.5 : sfx.volume === "aggressive" ? 1 : 0.75,
+        pitch: 1,
+        offsetMs: sfx.offsetMs,
+        source: "manual" as const,
+        sourceWordIds: [word.id],
+      };
+      return {
+        project: {
+          ...s.project,
+          composition: {
+            ...s.project.composition,
+            sfxEvents: [...s.project.composition.sfxEvents, event].sort(
+              (a, b) => a.start - b.start
+            ),
+          },
+        },
+      };
+    }),
+
   updateGroupLayout: (groupId, partial) =>
     set((s) => ({
       groupLayouts: {
@@ -493,6 +709,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         // existed (e.g. videoEffects, added for the camera layer) restores
         // with a sane value instead of undefined and crashing downstream.
         globalStyle: { ...defaultGlobalStyle, ...data.globalStyle },
+        composition: data.composition || { sfxEvents: [] },
         speakerStyles: data.speakerStyles,
         speakerMotions: data.speakerMotions,
         isTranscribing: false,
@@ -513,6 +730,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         videoUrl: "",
         transcription: null,
         globalStyle: { ...defaultGlobalStyle },
+        composition: { sfxEvents: [] },
         speakerStyles: {},
         speakerMotions: {},
         isTranscribing: false,
@@ -541,6 +759,7 @@ if (typeof window !== "undefined") {
       saveProjectToStorage({
         transcription: s.project.transcription,
         globalStyle: s.project.globalStyle,
+        composition: s.project.composition,
         speakerStyles: s.project.speakerStyles,
         speakerMotions: s.project.speakerMotions,
         groupLayouts: s.groupLayouts,

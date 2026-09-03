@@ -1,4 +1,4 @@
-import { GlobalStyle } from "./types";
+import { GlobalStyle, SfxSettings } from "./types";
 
 export interface ChoreographyBundle {
   global: Partial<GlobalStyle>;
@@ -8,6 +8,7 @@ export interface ChoreographyBundle {
     enabled: boolean;
     intensity: number;
   };
+  sfx?: Partial<SfxSettings>;
 }
 
 const styleBundles: Record<string, ChoreographyBundle> = {
@@ -15,6 +16,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
     description: "High-energy MrBeast style — punchy, loud, yellow-accented",
     emphasisWords: ["pop", "anything", "big", "energy", "fastest", "never"],
     cameraMovement: { enabled: true, intensity: 0.7 },
+    sfx: { enabled: true, pack: "creator", density: "energetic" },
     global: {
       style: {
         fontFamily: "Impact, 'Arial Black', sans-serif",
@@ -53,6 +55,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
     description: "Fast, punchy, high-energy",
     emphasisWords: ["pop", "big", "fastest", "energy", "never"],
     cameraMovement: { enabled: true, intensity: 0.5 },
+    sfx: { enabled: true, pack: "creator", density: "balanced" },
     global: {
       style: {
         fontFamily: "Arial Black, sans-serif",
@@ -81,6 +84,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
     description: "Minimal, clean, editorial",
     emphasisWords: [],
     cameraMovement: { enabled: false, intensity: 0 },
+    sfx: { enabled: false, pack: "clean", density: "subtle" },
     global: {
       style: {
         fontFamily: "Inter, system-ui, sans-serif",
@@ -102,6 +106,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
     description: "Cinematic, subtle, film-like",
     emphasisWords: [],
     cameraMovement: { enabled: false, intensity: 0 },
+    sfx: { enabled: true, pack: "cinematic", density: "subtle" },
     global: {
       style: {
         fontFamily: "Georgia, 'Times New Roman', serif",
@@ -124,6 +129,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
     description: "Fun, playful, for punchlines and jokes",
     emphasisWords: ["anything", "never"],
     cameraMovement: { enabled: true, intensity: 0.3 },
+    sfx: { enabled: true, pack: "meme", density: "balanced" },
     global: {
       style: {
         fontFamily: "'Comic Sans MS', 'Chalkboard SE', sans-serif",
@@ -157,6 +163,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
     description: "Neon glow, cyberpunk",
     emphasisWords: [],
     cameraMovement: { enabled: false, intensity: 0 },
+    sfx: { enabled: false, pack: "cinematic", density: "subtle" },
     global: {
       style: {
         fontFamily: "monospace",
@@ -179,6 +186,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
     description: "Calm, soft, minimal motion",
     emphasisWords: [],
     cameraMovement: { enabled: false, intensity: 0 },
+    sfx: { enabled: false, pack: "clean", density: "subtle" },
     global: {
       style: {
         fontFamily: "system-ui, sans-serif",

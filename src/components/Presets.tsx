@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useEditorStore } from "@/store/editor-store";
-import { GlobalStyle, WordStyle } from "@/core/types";
+import { GlobalStyle, WordStyle, SfxDensity, SfxVolume, SfxPackId } from "@/core/types";
 import { resolveChoreography } from "@/core/choreography";
 
 const presets: { name: string; style: Partial<GlobalStyle> }[] = [
@@ -198,6 +198,11 @@ export default function Presets() {
         Camera Movement
       </h3>
       <CameraMovementControl />
+
+      <h3 className="text-sm font-semibold text-white mt-6 mb-3">
+        Sound Effects
+      </h3>
+      <SfxControl />
     </div>
   );
 }
@@ -294,6 +299,126 @@ function CameraMovementControl() {
             {videoEffects.maxScale.toFixed(2)}× max
           </p>
         </div>
+      )}
+    </div>
+  );
+}
+
+function SfxControl() {
+  const sfx = useEditorStore((s) => s.project.globalStyle.sfx);
+  const sfxEventCount = useEditorStore(
+    (s) => s.project.composition.sfxEvents.length
+  );
+  const setSfxEnabled = useEditorStore((s) => s.setSfxEnabled);
+  const setSfxDensity = useEditorStore((s) => s.setSfxDensity);
+  const setSfxVolume = useEditorStore((s) => s.setSfxVolume);
+  const setSfxPack = useEditorStore((s) => s.setSfxPack);
+  const regenerateSfx = useEditorStore((s) => s.regenerateSfx);
+
+  const densities: SfxDensity[] = [
+    "off",
+    "subtle",
+    "balanced",
+    "energetic",
+    "chaotic",
+  ];
+  const volumes: SfxVolume[] = ["quiet", "balanced", "aggressive"];
+  const packs: SfxPackId[] = ["creator", "cinematic", "clean", "meme"];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-zinc-300">Sound on emphasis</span>
+        <button
+          onClick={() => setSfxEnabled(!sfx.enabled)}
+          className={`
+            relative w-10 h-5 rounded-full transition-colors
+            ${sfx.enabled ? "bg-[#00FF66]" : "bg-zinc-700"}
+          `}
+        >
+          <span
+            className={`
+              absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
+              ${sfx.enabled ? "translate-x-5" : "translate-x-0.5"}
+            `}
+          />
+        </button>
+      </div>
+
+      {sfx.enabled && (
+        <>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-zinc-500">Density</span>
+              <span className="text-xs text-zinc-600 capitalize">
+                {sfx.density}
+              </span>
+            </div>
+            <div className="flex gap-1">
+              {densities.map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setSfxDensity(d)}
+                  className={`flex-1 h-7 rounded text-[10px] font-medium transition-colors capitalize ${
+                    sfx.density === d
+                      ? "bg-[#00FF66] text-black"
+                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                  }`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-zinc-500">Volume</span>
+            </div>
+            <div className="flex gap-1">
+              {volumes.map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setSfxVolume(v)}
+                  className={`flex-1 h-7 rounded text-[10px] font-medium transition-colors capitalize ${
+                    sfx.volume === v
+                      ? "bg-[#00FF66] text-black"
+                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-zinc-500 block mb-1">Pack</label>
+            <select
+              value={sfx.pack}
+              onChange={(e) => setSfxPack(e.target.value as SfxPackId)}
+              className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-700 capitalize"
+            >
+              {packs.map((p) => (
+                <option key={p} value={p} className="capitalize">
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-zinc-500">
+              {sfxEventCount} sound event{sfxEventCount !== 1 ? "s" : ""}
+            </span>
+            <button
+              onClick={() => regenerateSfx()}
+              className="px-2.5 py-1 text-[10px] bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 hover:text-white transition-colors"
+            >
+              ↻ Regenerate
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
