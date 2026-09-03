@@ -56,8 +56,12 @@ export default function ExportPanel() {
     setProgress("Loading ffmpeg.wasm...");
 
     try {
-      const videoUrl = useEditorStore.getState().videoUrl;
+      const state = useEditorStore.getState();
+      const videoUrl = state.videoUrl;
       if (!videoUrl) throw new Error("No video loaded");
+
+      const sfxEvents = state.project.composition.sfxEvents ?? [];
+      const sfxOn = !!state.project.globalStyle.sfx?.enabled && sfxEvents.length > 0;
 
       setProgress("Checking video...");
       const meta = await getVideoMetadata(videoUrl);
@@ -90,22 +94,64 @@ export default function ExportPanel() {
       const srtContent = wordsToSRT(transcription.words);
       await ffmpeg.writeFile("captions.srt", new TextEncoder().encode(srtContent));
 
+      // Build the SFX mix: one audio input per event, delayed/scaled/pitched to
+      // its video-time slot, then amixed with the video's own audio. Consumes the
+      // same SfxEvent data as the live engine — no audio capture.
+      const sfxInputs: string[] = [];
+      const sfxChains: string[] = [];
+      if (sfxOn) {
+        setProgress("Loading sound effects...");
+        const files = new Set(sfxEvents.map((e) => e.sound));
+        let idx = 1;
+        for (const sound of files) {
+          await ffmpeg.writeFile(`sfx_${sound}.mp3`, await fetchFile(`/sfx/${sound}.mp3`));
+        }
+        for (const ev of sfxEvents) {
+          const startMs = Math.round(ev.start * 1000);
+          const vol = ev.volume ?? 0.75;
+          const pitch = ev.pitch ?? 1;
+          const chain = `[${idx}:a]volume=${vol.toFixed(3)}${
+            pitch !== 1 ? `,asetrate=44100*${pitch.toFixed(4)},aresample=44100` : ""
+          },adelay=${startMs}|${startMs},aformat=channel_layouts=stereo[fx${idx}]`;
+          sfxInputs.push("-i", `sfx_${ev.sound}.mp3`);
+          sfxChains.push(chain);
+          idx++;
+        }
+      }
+
       const needsScale = meta.width > MAX_EXPORT_WIDTH;
       const scaleFilter = needsScale ? `scale='min(${MAX_EXPORT_WIDTH},iw)':-2,` : "";
 
-      setProgress("Burning in captions...");
-      await ffmpeg.exec([
+      // Compose the audio filtergraph: delay/scale/pitch each SFX into its
+      // video-time slot, then amix them over the video's own stereo audio.
+      let audioFilter: string | null = null;
+      if (sfxOn) {
+        const preMix = sfxChains.join(";");
+        const mixLabels = sfxChains.map((_, i) => `[fx${i + 1}]`).join("");
+        audioFilter = `[0:a]aformat=channel_layouts=stereo[main];${preMix};[main]${mixLabels}amix=inputs=${sfxEvents.length + 1}:duration=first:normalize=0[aout]`;
+      }
+
+      const args = [
         "-i", "input.mp4",
+        ...sfxInputs,
         "-t", String(MAX_EXPORT_DURATION_SEC),
         "-vf", `${scaleFilter}subtitles=captions.srt:force_style='FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2'`,
+      ];
+      if (audioFilter) {
+        args.push("-filter_complex", audioFilter, "-map", "0:v", "-map", "[aout]");
+      }
+      args.push(
         "-preset", "ultrafast",
         "-b:v", "2500k",
         "-maxrate", "3000k",
         "-bufsize", "6000k",
         "-c:a", "aac",
         "-b:a", "128k",
-        "output.mp4",
-      ]);
+        "output.mp4"
+      );
+
+      setProgress(sfxOn ? "Mixing sounds & burning captions..." : "Burning in captions...");
+      await ffmpeg.exec(args);
 
       setProgress("Downloading...");
       const data = (await ffmpeg.readFile("output.mp4")) as Uint8Array;
