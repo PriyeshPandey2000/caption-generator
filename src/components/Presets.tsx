@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useEditorStore } from "@/store/editor-store";
-import { GlobalStyle } from "@/core/types";
+import { GlobalStyle, WordStyle } from "@/core/types";
 import { resolveChoreography } from "@/core/choreography";
 
 const presets: { name: string; style: Partial<GlobalStyle> }[] = [
@@ -169,7 +169,7 @@ export default function Presets() {
         )}
       </div>
 
-      <h3 className="text-sm font-semibold text-white mb-4">Presets</h3>
+      <h3 className="text-sm font-semibold text-white mb-3">Presets</h3>
       <div className="space-y-2">
         {presets.map((preset) => (
           <button
@@ -180,7 +180,8 @@ export default function Presets() {
             <span className="text-sm text-white group-hover:text-blue-400 transition-colors">
               {preset.name}
             </span>
-            <p className="text-xs text-zinc-500 mt-0.5 truncate">
+            <PresetPreview style={preset.style.style} />
+            <p className="text-[10px] text-zinc-500 mt-1 truncate">
               {preset.style.style?.fontFamily?.split(",")[0]} ·{" "}
               {preset.style.style?.fontSize}px
             </p>
@@ -294,6 +295,34 @@ function CameraMovementControl() {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function PresetPreview({ style }: { style?: Partial<WordStyle> }) {
+  const previewStyle: React.CSSProperties = {
+    fontFamily: style?.fontFamily,
+    fontWeight: style?.fontWeight,
+    letterSpacing: style?.letterSpacing != null ? `${style.letterSpacing}px` : undefined,
+    textTransform: style?.textTransform,
+    WebkitTextStroke: style?.strokeWidth
+      ? `${style.strokeWidth}px ${style.strokeColor || "#000"}`
+      : undefined,
+    textShadow: style?.shadowColor
+      ? `${style.shadowOffsetX || 0}px ${style.shadowOffsetY || 2}px ${
+          style.shadowBlur || 4
+        }px ${style.shadowColor}`
+      : undefined,
+    color: style?.color,
+    fontSize: `${Math.min(style?.fontSize || 48, 40)}px`,
+    lineHeight: 1.1,
+  };
+
+  return (
+    <div className="mt-2 h-12 rounded-md bg-[#111] border border-zinc-700/50 flex items-center justify-center px-2 overflow-hidden">
+      <span style={previewStyle} className="whitespace-nowrap">
+        big caption
+      </span>
     </div>
   );
 }
