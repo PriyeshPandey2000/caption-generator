@@ -300,28 +300,35 @@ function CameraMovementControl() {
 }
 
 function PresetPreview({ style }: { style?: Partial<WordStyle> }) {
+  const styleFontSize = style?.fontSize || 48;
+  const previewFontSize = 20;
+  const scale = previewFontSize / styleFontSize;
+
   const previewStyle: React.CSSProperties = {
     fontFamily: style?.fontFamily,
     fontWeight: style?.fontWeight,
-    letterSpacing: style?.letterSpacing != null ? `${style.letterSpacing}px` : undefined,
+    letterSpacing:
+      style?.letterSpacing != null
+        ? `${(style.letterSpacing * scale).toFixed(1)}px`
+        : undefined,
     textTransform: style?.textTransform,
     WebkitTextStroke: style?.strokeWidth
-      ? `${style.strokeWidth}px ${style.strokeColor || "#000"}`
+      ? `${(style.strokeWidth * scale).toFixed(1)}px ${style.strokeColor || "#000"}`
       : undefined,
     textShadow: style?.shadowColor
-      ? `${style.shadowOffsetX || 0}px ${style.shadowOffsetY || 2}px ${
-          style.shadowBlur || 4
-        }px ${style.shadowColor}`
+      ? `${(style.shadowOffsetX || 0) * scale}px ${
+          (style.shadowOffsetY || 2) * scale
+        }px ${(style.shadowBlur || 4) * scale}px ${style.shadowColor}`
       : undefined,
     color: style?.color,
-    fontSize: `${Math.min(style?.fontSize || 48, 40)}px`,
+    fontSize: `${previewFontSize}px`,
     lineHeight: 1.1,
   };
 
   return (
-    <div className="mt-2 h-12 rounded-md bg-[#111] border border-zinc-700/50 flex items-center justify-center px-2 overflow-hidden">
+    <div className="mt-2 h-8 rounded-md bg-[#111] border border-zinc-700/50 flex items-center justify-center px-2 overflow-hidden">
       <span style={previewStyle} className="whitespace-nowrap">
-        big caption
+        Big Caption
       </span>
     </div>
   );
