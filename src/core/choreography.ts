@@ -4,12 +4,17 @@ export interface ChoreographyBundle {
   global: Partial<GlobalStyle>;
   emphasisWords?: string[];
   description: string;
+  cameraMovement?: {
+    enabled: boolean;
+    intensity: number;
+  };
 }
 
 const styleBundles: Record<string, ChoreographyBundle> = {
   mrbeast: {
     description: "High-energy MrBeast style — punchy, loud, yellow-accented",
     emphasisWords: ["pop", "anything", "big", "energy", "fastest", "never"],
+    cameraMovement: { enabled: true, intensity: 0.7 },
     global: {
       style: {
         fontFamily: "Impact, 'Arial Black', sans-serif",
@@ -47,6 +52,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
   high_energy: {
     description: "Fast, punchy, high-energy",
     emphasisWords: ["pop", "big", "fastest", "energy", "never"],
+    cameraMovement: { enabled: true, intensity: 0.5 },
     global: {
       style: {
         fontFamily: "Arial Black, sans-serif",
@@ -74,6 +80,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
   clean: {
     description: "Minimal, clean, editorial",
     emphasisWords: [],
+    cameraMovement: { enabled: false, intensity: 0 },
     global: {
       style: {
         fontFamily: "Inter, system-ui, sans-serif",
@@ -94,6 +101,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
   cinematic: {
     description: "Cinematic, subtle, film-like",
     emphasisWords: [],
+    cameraMovement: { enabled: false, intensity: 0 },
     global: {
       style: {
         fontFamily: "Georgia, 'Times New Roman', serif",
@@ -115,6 +123,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
   comedy: {
     description: "Fun, playful, for punchlines and jokes",
     emphasisWords: ["anything", "never"],
+    cameraMovement: { enabled: true, intensity: 0.3 },
     global: {
       style: {
         fontFamily: "'Comic Sans MS', 'Chalkboard SE', sans-serif",
@@ -147,6 +156,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
   neon: {
     description: "Neon glow, cyberpunk",
     emphasisWords: [],
+    cameraMovement: { enabled: false, intensity: 0 },
     global: {
       style: {
         fontFamily: "monospace",
@@ -168,6 +178,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
   calm: {
     description: "Calm, soft, minimal motion",
     emphasisWords: [],
+    cameraMovement: { enabled: false, intensity: 0 },
     global: {
       style: {
         fontFamily: "system-ui, sans-serif",

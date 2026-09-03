@@ -3,13 +3,16 @@
 import { useRef, useEffect, useCallback } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import CaptionOverlay from "./CaptionOverlay";
+import { sampleZoom } from "@/core/zoom";
 
 export default function VideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const zoomRef = useRef<HTMLDivElement>(null);
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const isPlaying = useEditorStore((s) => s.isPlaying);
+  const videoEffects = useEditorStore((s) => s.project.globalStyle.videoEffects);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) {
@@ -48,18 +51,54 @@ export default function VideoPreview() {
     return () => window.removeEventListener("keydown", handleKeydown);
   }, [handlePlayPause]);
 
+  // RAF-driven camera zoom
+  useEffect(() => {
+    const video = videoRef.current;
+    const zoomEl = zoomRef.current;
+    if (!video || !zoomEl) return;
+
+    let rafId: number;
+
+    const tick = () => {
+      if (
+        isPlaying &&
+        videoEffects.cameraEvents.length > 0 &&
+        !video.paused
+      ) {
+        const scale = sampleZoom(
+          video.currentTime,
+          videoEffects.cameraEvents,
+          videoEffects
+        );
+        zoomEl.style.transform = `scale(${scale})`;
+      } else {
+        zoomEl.style.transform = "scale(1)";
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [isPlaying, videoEffects]);
+
   if (!videoUrl) return null;
 
   return (
     <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
-      <video
-        ref={videoRef}
-        src={videoUrl}
-        onTimeUpdate={handleTimeUpdate}
-        className="w-full h-full object-contain"
-        playsInline
-        onClick={handlePlayPause}
-      />
+      <div
+        ref={zoomRef}
+        className="w-full h-full"
+        style={{ transformOrigin: "center center" }}
+      >
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          onTimeUpdate={handleTimeUpdate}
+          className="w-full h-full object-contain"
+          playsInline
+          onClick={handlePlayPause}
+        />
+      </div>
       <CaptionOverlay />
 
       <button

@@ -192,6 +192,11 @@ export default function Presets() {
         Words per Line
       </h3>
       <WordsPerLineControl />
+
+      <h3 className="text-sm font-semibold text-white mt-6 mb-3">
+        Camera Movement
+      </h3>
+      <CameraMovementControl />
     </div>
   );
 }
@@ -220,6 +225,75 @@ function WordsPerLineControl() {
           {n}
         </button>
       ))}
+    </div>
+  );
+}
+
+function CameraMovementControl() {
+  const videoEffects = useEditorStore(
+    (s) => s.project.globalStyle.videoEffects
+  );
+  const toggleCameraMovement = useEditorStore(
+    (s) => s.toggleCameraMovement
+  );
+  const setCameraIntensity = useEditorStore(
+    (s) => s.setCameraIntensity
+  );
+
+  const enabled = videoEffects.cameraEvents.length > 0;
+  const intensity = Math.round((videoEffects.maxScale - 1.0) / 0.12);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-zinc-300">Camera zoom on emphasis</span>
+        <button
+          onClick={() => toggleCameraMovement(!enabled)}
+          className={`
+            relative w-10 h-5 rounded-full transition-colors
+            ${enabled ? "bg-[#00FF66]" : "bg-zinc-700"}
+          `}
+        >
+          <span
+            className={`
+              absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
+              ${enabled ? "translate-x-5" : "translate-x-0.5"}
+            `}
+          />
+        </button>
+      </div>
+
+      {enabled && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-zinc-500">Intensity</span>
+            <span className="text-xs text-zinc-600 font-mono">{intensity}</span>
+          </div>
+          <div className="flex gap-1">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                onClick={() => setCameraIntensity(n)}
+                className={`
+                  flex-1 h-7 rounded text-xs font-medium transition-colors
+                  ${
+                    intensity === n
+                      ? "bg-[#00FF66] text-black"
+                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                  }
+                `}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-zinc-600 mt-1">
+            {videoEffects.cameraEvents.length} camera event
+            {videoEffects.cameraEvents.length !== 1 ? "s" : ""} ·{" "}
+            {videoEffects.maxScale.toFixed(2)}× max
+          </p>
+        </div>
+      )}
     </div>
   );
 }

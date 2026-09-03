@@ -86,6 +86,24 @@ export interface GlobalStyle {
   motion: WordMotion;
   transform: WordTransform;
   maxWordsPerGroup: number;
+  videoEffects: VideoEffects;
+}
+
+export interface CameraEvent {
+  id: string;
+  start: number;
+  peak: number;
+  end: number;
+  type: "zoom" | "shake" | "pan" | "rotate";
+  intensity: number;
+  source: "auto" | "word" | "punchline" | "speaker" | "manual";
+}
+
+export interface VideoEffects {
+  cameraEvents: CameraEvent[];
+  maxScale: number;
+  inDuration: number;
+  outDuration: number;
 }
 
 export type StyleOverrideLevel = "global" | "speaker" | "phrase" | "word";

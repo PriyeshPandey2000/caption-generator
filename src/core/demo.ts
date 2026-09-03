@@ -2,7 +2,7 @@ import { Word, CaptionGroup, Segment, TranscriptionResult } from "./types";
 import { v4 as uuid } from "uuid";
 import { groupWordsIntoCaptions } from "./captions";
 
-const DEMO_WORDS = [
+const RAW_DEMO_WORDS = [
   { text: "This", s: 0.0, e: 0.35 },
   { text: "is", s: 0.35, e: 0.5 },
   { text: "CaptionLab", s: 0.5, e: 1.0 },
@@ -42,6 +42,17 @@ const DEMO_WORDS = [
   { text: "instant", s: 10.5, e: 10.75 },
   { text: "energy.", s: 10.75, e: 11.15 },
 ];
+
+// Hand-authored timings above butt words up against each other exactly
+// (end === next start) — real speech (and real Whisper output) always has a
+// small gap. Trim a natural pause before any word that touches the next one,
+// so the timeline's drag-to-retime handles have room to work in the demo.
+const WORD_GAP = 0.04;
+const DEMO_WORDS = RAW_DEMO_WORDS.map((w, i) => {
+  const next = RAW_DEMO_WORDS[i + 1];
+  if (!next || next.s > w.e) return w;
+  return { ...w, e: Math.max(w.s + 0.05, w.e - WORD_GAP) };
+});
 
 export function createDemoTranscription(): TranscriptionResult {
   const words: Word[] = DEMO_WORDS.map((w) => ({

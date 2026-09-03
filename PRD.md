@@ -99,7 +99,39 @@ One upload → styled, animated, corrected, zoomed, **exported short** in ≤2 m
 
 # PHASE 2 — VIRAL VIDEO MANIPULATION (differentiators; scoped, demo-able)
 
-- **Auto-zoom:** on energy/punchline/volume spikes → 1.1–1.2× slow push or cut; + manual "add zoom". (Scale keyframes on the video wrapper.)
+### 2.1 Camera Layer — AI-Directed Camera Choreography ✅ Implemented
+
+Separate video effects (zoom, pan, shake) from caption transforms. A dedicated **camera event timeline** drives the `<video>` wrapper via frame-driven RAF interpolation (no CSS transitions). Events are generated from emphasis/punchline detection, merged when overlapping, and sampled at `currentTime` each frame.
+
+**Architecture:**
+- `CameraEvent`: `{ id, start, peak, end, type, intensity, source }` — the atomic unit. `intensity` (0–1) is a per-event multiplier on the global `maxScale`.
+- `VideoEffects`: `{ cameraEvents, maxScale, inDuration, outDuration }` — stored on `GlobalStyle`.
+- Engine (`src/core/zoom.ts`): `buildCameraTimeline` → `mergeOverlapping` → `sampleZoom(currentTime)`.
+- `sampleZoom` computes `effectiveMax = 1 + (globalMax - 1) * event.intensity`, so per-word Camera Punch (Subtle/Punch/Heavy) produces visually distinct zoom amounts.
+- Preview renders via RAF on the `<video>` wrapper. Same timeline feeds eventual export.
+
+**Zoom envelope** per event (three phases):
+1. **Anticipate** (100ms before word start) → ramp from 1.0 toward peak.
+2. **Zoom-in** (150ms) → reach `effectiveMax` at `word.start + inDuration*0.3`.
+3. **Hold** at `effectiveMax` through the word's spoken duration.
+4. **Release** (300ms after word end) → ease back to 1.0.
+Most words produce **zero zoom** — only emphasis/punchline events trigger motion.
+
+**UI:**
+- Presets panel: Camera Movement toggle + intensity slider (1–5, maps to `maxScale`).
+- Inspector: "Camera Punch" presets per selected word (None / Subtle / Punch / Heavy) — sets per-event `intensity` (0–1 fractional). Global slider and per-word intensity are on separate fields and compose correctly.
+- Choreography bundles expose `cameraMovement: { enabled, intensity }`. MrBeast auto-enables (intensity 0.7); High-Energy (0.5); Comedy (0.3); Clean/Calm/Neon/Cinematic auto-disable.
+- `toggleCameraMovement` always rebuilds from current emphasis words on enable (no stale-events).
+
+**Known limitations:**
+- Camera events are not auto-rebuilt on transcript edits — user toggles off/on to refresh.
+- Manual Camera Punch events are cleared on toggle off/on (rebuild replaces them).
+- Export (ffmpeg burn-in) does not render camera zoom — preview only for now.
+
+**Beat Mode (future):** "Sync camera movement to speech" — pause → zoom-out, sentence boundary → reset, speaker change → micro-pan. Architecture supports this via the same event timeline.
+
+### 2.2 Other Phase 2 items
+
 - **Auto-SFX:** subtle whoosh/pop synced to emphasis/emoji (prebaked cue library).
 - **Audio-event tagging:** detect/stylize `[laughter]`, `[applause]`.
 - **Speaker-aware styling:** colorful per-speaker split (needs the diarization layer).

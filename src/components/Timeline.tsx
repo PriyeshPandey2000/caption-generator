@@ -13,6 +13,7 @@ export default function Timeline() {
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
   const selectWord = useEditorStore((s) => s.selectWord);
   const updateWordText = useEditorStore((s) => s.updateWordText);
+  const retimeWord = useEditorStore((s) => s.retimeWord);
 
   const duration = transcription?.duration || 0;
 
@@ -55,28 +56,79 @@ export default function Timeline() {
         onClick={handleClick}
         className="relative h-16 bg-zinc-800 rounded-lg cursor-crosshair overflow-hidden"
       >
-        {wordPositions.map((w) => (
-          <div
-            key={w.id}
-            onClick={(e) => {
-              e.stopPropagation();
-              selectWord(w.id, e.metaKey || e.ctrlKey);
-            }}
-            className={`
-              absolute top-1 bottom-1 rounded-sm cursor-pointer transition-opacity
-              ${
-                selectedWordIds.includes(w.id)
-                  ? "bg-blue-500/60 opacity-100"
-                  : "bg-zinc-600/50 hover:bg-zinc-500/60 opacity-70"
-              }
-            `}
-            style={{
-              left: `${w.startPct}%`,
-              width: `${Math.max(w.widthPct, 0.3)}%`,
-            }}
-            title={w.text}
-          />
-        ))}
+        {wordPositions.map((w, i) => {
+          const prevEnd = i > 0 ? wordPositions[i - 1].end : 0;
+          const nextStart = i < wordPositions.length - 1 ? wordPositions[i + 1].start : duration;
+          return (
+            <div
+              key={w.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                selectWord(w.id, e.metaKey || e.ctrlKey);
+              }}
+              className={`
+                absolute top-1 bottom-1 rounded-sm cursor-pointer transition-opacity
+                ${
+                  selectedWordIds.includes(w.id)
+                    ? "bg-blue-500/60 opacity-100"
+                    : "bg-zinc-600/50 hover:bg-zinc-500/60 opacity-70"
+                }
+              `}
+              style={{
+                left: `${w.startPct}%`,
+                width: `${Math.max(w.widthPct, 0.3)}%`,
+              }}
+              title={w.text}
+            >
+              {/* Left edge handle */}
+              <div
+                className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize z-10 hover:bg-[#00FF66]/60 transition-colors rounded-l-sm"
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  const rect = containerRef.current!.getBoundingClientRect();
+                  const startX = e.clientX;
+                  const startVal = w.start;
+                  const move = (ev: MouseEvent) => {
+                    const dx = ev.clientX - startX;
+                    const dt = (dx / rect.width) * duration;
+                    const newStart = Math.min(Math.max(startVal + dt, prevEnd), w.end - 0.05);
+                    retimeWord(w.id, newStart, w.end);
+                  };
+                  const up = () => {
+                    window.removeEventListener("mousemove", move);
+                    window.removeEventListener("mouseup", up);
+                  };
+                  window.addEventListener("mousemove", move);
+                  window.addEventListener("mouseup", up);
+                }}
+              />
+              {/* Right edge handle */}
+              <div
+                className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize z-10 hover:bg-[#00FF66]/60 transition-colors rounded-r-sm"
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  const rect = containerRef.current!.getBoundingClientRect();
+                  const startX = e.clientX;
+                  const startVal = w.end;
+                  const move = (ev: MouseEvent) => {
+                    const dx = ev.clientX - startX;
+                    const dt = (dx / rect.width) * duration;
+                    const newEnd = Math.max(Math.min(startVal + dt, nextStart), w.start + 0.05);
+                    retimeWord(w.id, w.start, newEnd);
+                  };
+                  const up = () => {
+                    window.removeEventListener("mousemove", move);
+                    window.removeEventListener("mouseup", up);
+                  };
+                  window.addEventListener("mousemove", move);
+                  window.addEventListener("mouseup", up);
+                }}
+              />
+            </div>
+          );
+        })}
 
         <div
           className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10"

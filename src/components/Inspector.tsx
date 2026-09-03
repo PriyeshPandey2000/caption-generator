@@ -18,6 +18,19 @@ export default function Inspector() {
       ? transcription.words.find((w) => w.id === selectedWordIds[0])
       : null;
 
+  const addManualCameraEvent = useEditorStore(
+    (s) => s.addManualCameraEvent
+  );
+  const videoEffects = useEditorStore(
+    (s) => s.project.globalStyle.videoEffects
+  );
+
+  const hasManualZoom = selectedWord
+    ? videoEffects.cameraEvents.some(
+        (e) => e.source === "manual" && selectedWord.start >= e.start && selectedWord.start <= e.end
+      )
+    : false;
+
   if (!selectedWord) {
     return (
       <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto">
@@ -73,6 +86,48 @@ export default function Inspector() {
         motion={selectedWord.animation || {}}
         onChange={(m) => updateWordMotion(selectedWord.id, m)}
       />
+
+      <h4 className="text-xs font-medium text-zinc-400 mt-6 mb-2">
+        Camera Punch
+      </h4>
+      <div className="flex gap-1">
+        {[
+          { label: "None", intensity: 0 },
+          { label: "Subtle", intensity: 0.3 },
+          { label: "Punch", intensity: 0.7 },
+          { label: "Heavy", intensity: 1.0 },
+        ].map((preset) => (
+          <button
+            key={preset.label}
+            onClick={() => {
+              if (preset.intensity === 0) {
+                // Remove manual events for this word
+                const ve = useEditorStore.getState().project.globalStyle.videoEffects;
+                const merged = ve.cameraEvents.filter(
+                  (e) => !(e.source === "manual" && selectedWord.start >= e.start && selectedWord.start <= e.end)
+                );
+                useEditorStore.getState().updateGlobalStyle({
+                  videoEffects: { ...ve, cameraEvents: merged },
+                });
+              } else {
+                addManualCameraEvent(selectedWord.id, preset.intensity);
+              }
+            }}
+            className={`
+              flex-1 px-2 py-1.5 text-[10px] rounded transition-colors
+              ${
+                preset.intensity === 0 && !hasManualZoom
+                  ? "bg-zinc-700 text-white"
+                  : hasManualZoom && preset.intensity > 0
+                    ? "bg-[#00FF66]/20 text-[#00FF66]"
+                    : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+              }
+            `}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle } from "./types";
+import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle, VideoEffects } from "./types";
 
 export const defaultWordStyle: WordStyle = {
   fontFamily: "Inter, system-ui, sans-serif",
@@ -47,11 +47,19 @@ export const defaultTransform: WordTransform = {
   scale: 1,
 };
 
+export const defaultVideoEffects: VideoEffects = {
+  cameraEvents: [],
+  maxScale: 1.12,
+  inDuration: 150,
+  outDuration: 300,
+};
+
 export const defaultGlobalStyle: GlobalStyle = {
   style: defaultWordStyle,
   motion: defaultMotion,
   transform: defaultTransform,
   maxWordsPerGroup: 4,
+  videoEffects: defaultVideoEffects,
 };
 
 export function resolveWordStyle(

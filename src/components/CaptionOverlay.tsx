@@ -127,9 +127,14 @@ function WordSpan({
   const entrance = word.animation?.entrance || globalStyle.motion.entrance;
   const activeAnim = word.animation?.active || globalStyle.motion.active;
   const emphasis = word.animation?.emphasis || globalStyle.motion.emphasis;
+  const exit = word.animation?.exit || globalStyle.motion.exit;
+
+  const isSpokenNow = currentTime >= word.start && currentTime < word.end;
+  const hasEnded = currentTime >= word.end;
 
   const animStyle: React.CSSProperties = {};
 
+  // Entrance: scale 80→100 in 180ms after word appears
   if (entrance && entrance.type === "scale") {
     const elapsed = (currentTime - word.start) * 1000;
     const duration = entrance.duration || 180;
@@ -140,8 +145,7 @@ function WordSpan({
     animStyle.transform = `scale(${scale / 100})`;
   }
 
-  const isSpokenNow = currentTime >= word.start && currentTime < word.end;
-
+  // Active-word or emphasis: pop while spoken
   if (emphasis && emphasis.type === "scale" && isSpokenNow) {
     animStyle.transform = `scale(${(emphasis.scaleTo || 140) / 100})`;
     if (emphasis.color) animStyle.color = emphasis.color;
@@ -154,6 +158,18 @@ function WordSpan({
     if (activeAnim.glowRadius) {
       animStyle.textShadow = `0 0 ${activeAnim.glowRadius}px ${activeAnim.color || "#FFD700"}`;
     }
+  }
+
+  // Exit: fade out after word ends. Pure function of currentTime (not
+  // gated on isPlaying) so pausing or scrubbing mid-fade doesn't snap the
+  // word back to fully visible.
+  if (exit && hasEnded) {
+    const elapsedMs = (currentTime - word.end) * 1000;
+    const exitDuration = exit.duration || 120;
+    const progress = Math.min(1, Math.max(0, elapsedMs / exitDuration));
+    const fromOpacity = exit.from ?? 1;
+    const toOpacity = exit.to ?? 0;
+    animStyle.opacity = fromOpacity + (toOpacity - fromOpacity) * progress;
   }
 
   const updateWordText = useEditorStore((s) => s.updateWordText);

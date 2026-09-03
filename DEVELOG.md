@@ -103,7 +103,51 @@ Get from empty repo to a working, polished Phase 1 editor that a judge can demo 
 
 ### Remaining (next sessions)
 - Finish/verify the in-flight neon-green visual redesign (UploadZone + hero font still pending) and confirm playback timing post-guard.
+- Browser-verify camera zoom with a real uploaded video (demo mode has no video element).
+- Auto-SFX (Phase 2.2), audio-event tagging, speaker-aware styling.
 - Further polish (mobile layout audit, more presets, undo/redo).
+
+---
+
+## 2026-09-03 — Phase 2: Camera Layer (Auto-Zoom)
+
+### Session goal
+Implement AI-directed camera choreography: video-level zoom on emphasis words, driven by a camera event timeline and rendered via RAF on the `<video>` wrapper.
+
+### What was built
+- **Types** (`src/core/types.ts`): `CameraEvent` (`{ id, start, peak, end, type, intensity, source }`), `VideoEffects` (`{ cameraEvents, maxScale, inDuration, outDuration }`), added `videoEffects` to `GlobalStyle`.
+- **Zoom engine** (`src/core/zoom.ts` — new file):
+  - `buildCameraTimeline`: generates `CameraEvent[]` from emphasis words, using a three-phase envelope: anticipate (100ms before word) → zoom-in (150ms) → hold (through word duration) → release (300ms after word end).
+  - `mergeOverlapping`: merges overlapping events so close emphasis words don't fight.
+  - `sampleZoom`: frame-accurate sampling. Computes `effectiveMax = 1 + (globalMax - 1) * event.intensity`, so per-word Camera Punch (Subtle/Punch/Heavy) produces visually distinct zoom. Uses `easeOutBack` for the zoom-in "punch" feel and `easeOutCubic` for the release.
+- **VideoPreview** (`src/components/VideoPreview.tsx`): RAF-driven zoom on a `<div>` wrapper around `<video>`. No CSS transitions — pure frame-driven interpolation. Snap to 1.0 when paused/scrubbing. Only active when `cameraEvents.length > 0`.
+- **Presets panel** (`src/components/Presets.tsx`): Camera Movement toggle (on/off) + intensity slider (1–5, maps to `maxScale`). Shows event count + max scale.
+- **Inspector** (`src/components/Inspector.tsx`): "Camera Punch" per selected word — None / Subtle / Punch / Heavy buttons. Sets per-event `intensity` (0–1 fractional). Manual events merge into the timeline via `mergeOverlapping`.
+- **Choreography** (`src/core/choreography.ts`): Each bundle has `cameraMovement: { enabled, intensity }`. MrBeast (0.7), High-Energy (0.5), Comedy (0.3) auto-enable; Clean/Calm/Neon/Cinematic auto-disable. `applyChoreography` generates camera events from emphasis words when enabled.
+- **Store** (`src/store/editor-store.ts`): `toggleCameraMovement` (always rebuilds on enable), `setCameraIntensity` (sets `maxScale` only, preserves per-event intensity), `addManualCameraEvent` (adds a manual event and merges).
+- **Persistence**: `videoEffects` is part of `GlobalStyle`, so it saves/loads via existing autosave automatically.
+
+### Bug fixes applied (6 issues caught in review)
+1. **`event.intensity` was dead** — `sampleZoom` only used global `maxScale`, never read per-event `intensity`. Inspector's Subtle/Punch/Heavy buttons had no visual effect. Fixed: `sampleZoom` now computes `effectiveMax = 1 + (globalMax - 1) * event.intensity`.
+2. **`toggleCameraMovement` stale-events guard** — `if (ve.cameraEvents.length > 0) return s` prevented rebuilding when emphasis words changed after first enable. Fixed: removed the guard, always rebuild on enable.
+3. **Two incompatible intensity scales** — Choreography/Camera Punch used 0-1 fractional; Presets slider used 1-5 integer → `maxScale`. Masked by bug #1. Fixed by #5: per-event intensity (0-1) multiplies global `maxScale`; two fields compose correctly.
+4. **No hold phase** — Zoom peaked 60ms into the word then immediately decayed. For a 300ms word, zoom was releasing while still spoken. Fixed: envelope now has anticipate → zoom-in → hold (through word duration) → release.
+5. **Global slider stomped per-word tuning** — `setCameraIntensity` overwrote every event's `intensity` uniformly. Fixed: only sets `maxScale`, preserves per-event `intensity`.
+6. **Stale events on transcript edits** — Covered by fix #2 (always rebuild on enable).
+
+### Verified
+- Lint clean, build clean (TypeScript compiles, all routes generate).
+- Browser verification pending (demo mode doesn't have video, so camera zoom only visible with real uploaded video).
+
+### Decisions register updates
+
+| # | Decision | Rationale | Status |
+|---|----------|-----------|--------|
+| 13 | Camera effects on separate `videoEffects` layer, not `Word.transform` | Video zoom ≠ caption transform; architecture must support future pan/shake/rotate | Done |
+| 14 | RAF-driven zoom, no CSS transitions on `<video>` wrapper | CSS transitions fight the playback loop, cause lag/rubber-band | Done |
+| 15 | Event-based zoom (emphasis words only), not per-word micro-zoom | Most words should produce zero zoom; zoom should feel like intentional camera reaction | Done |
+| 16 | Per-event `intensity` as multiplier on global `maxScale` | Per-word Camera Punch and global slider are on separate fields, compose correctly | Done |
+| 17 | Three-phase zoom envelope (anticipate → zoom-in → hold → release) | Hold phase keeps zoom at peak while word is spoken; feels like actual editing effect | Done |
 
 ---
 
@@ -123,3 +167,8 @@ Get from empty repo to a working, polished Phase 1 editor that a judge can demo 
 | 10 | Don't persist the source video blob/`File`; restore onto black canvas | Blob URLs/File are ephemeral/binary — too large and not meaningful across reloads | Done |
 | 11 | Emphasis punchlines render as a single scale(140%) pop (not stacked scales) | A stacked 140%×125% transform looked broken and skipped entrance motion | Done |
 | 12 | Words are edited inline via a reusable `EditableWord` (double-click) matched to resolved style | Seamless in-place correction that auto-propagates to export and persists | Done |
+| 13 | Camera effects on separate `videoEffects` layer, not `Word.transform` | Video zoom ≠ caption transform; architecture must support future pan/shake/rotate | Done |
+| 14 | RAF-driven zoom, no CSS transitions on `<video>` wrapper | CSS transitions fight the playback loop, cause lag/rubber-band | Done |
+| 15 | Event-based zoom (emphasis words only), not per-word micro-zoom | Most words should produce zero zoom; zoom should feel like intentional camera reaction | Done |
+| 16 | Per-event `intensity` as multiplier on global `maxScale` | Per-word Camera Punch and global slider are on separate fields, compose correctly | Done |
+| 17 | Three-phase zoom envelope (anticipate → zoom-in → hold → release) | Hold phase keeps zoom at peak while word is spoken; feels like actual editing effect | Done |

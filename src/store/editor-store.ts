@@ -12,6 +12,7 @@ import { groupWordsIntoCaptions } from "@/core/captions";
 import { createDemoTranscription } from "@/core/demo";
 import { ChoreographyBundle, highlightEmphasisWords } from "@/core/choreography";
 import { saveProjectToStorage } from "@/core/persistence";
+import { buildCameraTimeline, mergeOverlapping } from "@/core/zoom";
 import { v4 as uuid } from "uuid";
 
 export interface GroupLayout {
@@ -58,6 +59,9 @@ interface EditorState {
   regroupCaptions: () => void;
   setMaxWordsPerGroup: (n: number) => void;
   applyPreset: (preset: Partial<GlobalStyle>) => void;
+  toggleCameraMovement: (enabled: boolean) => void;
+  setCameraIntensity: (intensity: number) => void;
+  addManualCameraEvent: (wordId: string, intensity: number) => void;
   restorePersisted: (data: {
     transcription: TranscriptionResult | null;
     globalStyle: GlobalStyle;
@@ -290,10 +294,33 @@ export const useEditorStore = create<EditorState>((set) => ({
         };
       });
 
+      const ve = s.project.globalStyle.videoEffects;
+      let newVideoEffects = ve;
+
+      if (bundle.cameraMovement) {
+        if (bundle.cameraMovement.enabled) {
+          const emphasisArr = words
+            .filter((w) => w.animation?.emphasis)
+            .map((w) => w.id);
+          const maxScale = 1.0 + bundle.cameraMovement.intensity * 0.12;
+          const events = buildCameraTimeline(trans.words, emphasisArr, {
+            ...ve,
+            maxScale,
+          });
+          newVideoEffects = { ...ve, maxScale, cameraEvents: events };
+        } else {
+          newVideoEffects = { ...ve, cameraEvents: [] };
+        }
+      }
+
       return {
         project: {
           ...s.project,
-          globalStyle: { ...s.project.globalStyle, ...bundle.global },
+          globalStyle: {
+            ...s.project.globalStyle,
+            ...bundle.global,
+            videoEffects: newVideoEffects,
+          },
           transcription: { ...trans, words },
         },
       };
@@ -360,6 +387,82 @@ export const useEditorStore = create<EditorState>((set) => ({
         globalStyle: { ...s.project.globalStyle, ...preset },
       },
     })),
+
+  toggleCameraMovement: (enabled) =>
+    set((s) => {
+      const ve = s.project.globalStyle.videoEffects;
+      if (enabled) {
+        const trans = s.project.transcription;
+        if (!trans) return s;
+        const emphasisIds = trans.words
+          .filter((w) => w.animation?.emphasis)
+          .map((w) => w.id);
+        const events = buildCameraTimeline(trans.words, emphasisIds, ve);
+        return {
+          project: {
+            ...s.project,
+            globalStyle: {
+              ...s.project.globalStyle,
+              videoEffects: { ...ve, cameraEvents: events },
+            },
+          },
+        };
+      }
+      return {
+        project: {
+          ...s.project,
+          globalStyle: {
+            ...s.project.globalStyle,
+            videoEffects: { ...ve, cameraEvents: [] },
+          },
+        },
+      };
+    }),
+
+  setCameraIntensity: (intensity) =>
+    set((s) => {
+      const ve = s.project.globalStyle.videoEffects;
+      const maxScale = 1.0 + intensity * 0.12;
+      return {
+        project: {
+          ...s.project,
+          globalStyle: {
+            ...s.project.globalStyle,
+            videoEffects: { ...ve, maxScale },
+          },
+        },
+      };
+    }),
+
+  addManualCameraEvent: (wordId, intensity) =>
+    set((s) => {
+      const ve = s.project.globalStyle.videoEffects;
+      const trans = s.project.transcription;
+      if (!trans) return s;
+      const word = trans.words.find((w) => w.id === wordId);
+      if (!word) return s;
+      const inSec = ve.inDuration / 1000;
+      const outSec = ve.outDuration / 1000;
+      const event = {
+        id: uuid(),
+        start: Math.max(0, word.start - 0.1),
+        peak: word.start + Math.min(inSec, (word.end - word.start) * 0.4),
+        end: word.end + outSec,
+        type: "zoom" as const,
+        intensity,
+        source: "manual" as const,
+      };
+      const merged = mergeOverlapping([...ve.cameraEvents, event]);
+      return {
+        project: {
+          ...s.project,
+          globalStyle: {
+            ...s.project.globalStyle,
+            videoEffects: { ...ve, cameraEvents: merged },
+          },
+        },
+      };
+    }),
 
   updateGroupLayout: (groupId, partial) =>
     set((s) => ({
