@@ -12,7 +12,12 @@ import { groupWordsIntoCaptions } from "@/core/captions";
 import { createDemoTranscription } from "@/core/demo";
 import { ChoreographyBundle, highlightEmphasisWords } from "@/core/choreography";
 import { saveProjectToStorage } from "@/core/persistence";
-import { buildCameraTimeline, mergeOverlapping } from "@/core/zoom";
+import {
+  buildCameraTimeline,
+  mergeOverlapping,
+  sliderIntensityToScale,
+  fractionalIntensityToScale,
+} from "@/core/zoom";
 import { v4 as uuid } from "uuid";
 
 export interface GroupLayout {
@@ -302,7 +307,7 @@ export const useEditorStore = create<EditorState>((set) => ({
           const emphasisArr = words
             .filter((w) => w.animation?.emphasis)
             .map((w) => w.id);
-          const maxScale = 1.0 + bundle.cameraMovement.intensity * 0.12;
+          const maxScale = fractionalIntensityToScale(bundle.cameraMovement.intensity);
           const events = buildCameraTimeline(trans.words, emphasisArr, {
             ...ve,
             maxScale,
@@ -422,7 +427,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   setCameraIntensity: (intensity) =>
     set((s) => {
       const ve = s.project.globalStyle.videoEffects;
-      const maxScale = 1.0 + intensity * 0.12;
+      const maxScale = sliderIntensityToScale(intensity);
       return {
         project: {
           ...s.project,

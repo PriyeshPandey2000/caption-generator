@@ -37,7 +37,7 @@ One upload → styled, animated, corrected, zoomed, **exported short** in ≤2 m
 ## 5. Locked foundation (confirmed)
 
 - **Transcription:** Groq `whisper-large-v3-turbo` → `response_format: "verbose_json"`, `timestamp_granularities: ["word","segment"]`. Gives `{word, start, end}` per word + segment metadata. Free-tier friendly, fast.
-- **Word timestamps: ✅ confirmed. Speaker labels: Phase 2 / optional diarization layer** (Groq does NOT emit speaker labels) — not a Phase-1 blocker.
+- **Word timestamps: ✅ confirmed. Speaker labels: ✅ CONFIRMED BLOCKED** — Groq's Whisper API (`whisper-large-v3-turbo` / `whisper-large-v3`) does **not** emit speaker/diarization data in any response format (`json`, `verbose_json`, `text`). Verified against Groq docs (2026-09-03): only segment metadata (`avg_logprob`, `compression_ratio`, `no_speech_prob`) plus word/segment timestamps are returned. Any per-speaker work requires either (a) manual speaker assignment in the UI, or (b) a **third-party diarization service** (AssemblyAI / pyannote) with its own API key + billing + backend route. The `Web Audio API`-level heuristics (pause gaps → speaker change) are unreliable and were rejected (a 500ms pause does not imply a speaker change). **Status: BLOCKED** — features #9 & audio-event tagging (#8) are on hold; the styling *infrastructure* (`Word.speaker`, `speakerStyles`, `speakerMotions`, `resolveWordStyle`) is already built and waits only for real speaker data to light up.
 - **Burn-in:** `ffmpeg.wasm` in-browser, short-form 1080p. No backend needed for the demo. Export seam allows a server-side FFmpeg / Tauri drop-in later.
 - **Stack:** Next.js (UI) + thin Node routes (proxy Groq key) + ffmpeg.wasm.
 
@@ -133,8 +133,8 @@ Most words produce **zero zoom** — only emphasis/punchline events trigger moti
 ### 2.2 Other Phase 2 items
 
 - **Auto-SFX:** subtle whoosh/pop synced to emphasis/emoji (prebaked cue library).
-- **Audio-event tagging:** detect/stylize `[laughter]`, `[applause]`.
-- **Speaker-aware styling:** colorful per-speaker split (needs the diarization layer).
+- **Audio-event tagging:** detect/stylize `[laughter]`, `[applause]`. **Status: BLOCKED** — same diarization-layer limitation as speakers; Groq's STT returns no audio-event labels. Not competition MVP; architect for later via the same `SemanticEvent`/`EffectEvent` timeline.
+- **Speaker-aware styling:** colorful per-speaker split. **Status: BLOCKED** — see §5; requires manual assignment UI or a third-party diarization service with its own API key. The styling infrastructure (`Word.speaker`, `speakerStyles`, `speakerMotions`, `resolveWordStyle`) is already built and dormant.
 
 ---
 

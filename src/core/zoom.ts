@@ -105,6 +105,14 @@ function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
 
-export function intensityToScale(intensity: number): number {
-  return 1.0 + intensity * 0.12;
+// Slider UI uses discrete levels 1–5; choreography bundles use a continuous
+// 0–1 fraction. Both must land on the same maxScale ceiling (1.6 at full
+// strength) or presets like MrBeast (intensity: 0.7) end up computing an
+// almost-invisible zoom instead of the punchy one the preset promises.
+export function sliderIntensityToScale(level: number): number {
+  return 1.0 + level * 0.12;
+}
+
+export function fractionalIntensityToScale(fraction: number): number {
+  return 1.0 + fraction * 0.6;
 }
