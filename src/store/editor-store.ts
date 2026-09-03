@@ -489,7 +489,10 @@ export const useEditorStore = create<EditorState>((set) => ({
       project: {
         ...s.project,
         transcription: data.transcription,
-        globalStyle: data.globalStyle,
+        // Merge onto defaults so a project saved before a GlobalStyle field
+        // existed (e.g. videoEffects, added for the camera layer) restores
+        // with a sane value instead of undefined and crashing downstream.
+        globalStyle: { ...defaultGlobalStyle, ...data.globalStyle },
         speakerStyles: data.speakerStyles,
         speakerMotions: data.speakerMotions,
         isTranscribing: false,
