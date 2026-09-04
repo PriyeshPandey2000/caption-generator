@@ -123,6 +123,7 @@ function WordSpan({
   const currentTime = useEditorStore((s) => s.currentTime);
 
   const style = resolveWordStyle(word, speakerStyles, globalStyle);
+  const baseFontSize = style.fontSize ?? 48;
 
   const entrance = word.animation?.entrance || globalStyle.motion.entrance;
   const activeAnim = word.animation?.active || globalStyle.motion.active;
@@ -145,15 +146,20 @@ function WordSpan({
     animStyle.transform = `scale(${scale / 100})`;
   }
 
-  // Active-word or emphasis: pop while spoken
+  // Active-word or emphasis: pop while spoken. Animate real font-size (not
+  // transform: scale) so the word reflows and pushes its neighbors apart
+  // instead of visually overlapping them — transform is paint-only and
+  // doesn't reserve the extra layout space the enlarged glyph needs. This
+  // also avoids a stroke-rendering artifact where -webkit-text-stroke gets
+  // stretched by the transform and looks jagged on diagonal letters (A/M/N).
   if (emphasis && emphasis.type === "scale" && isSpokenNow) {
-    animStyle.transform = `scale(${(emphasis.scaleTo || 140) / 100})`;
+    animStyle.fontSize = `${(baseFontSize * (emphasis.scaleTo || 140)) / 100}px`;
     if (emphasis.color) animStyle.color = emphasis.color;
     if (emphasis.glowRadius) {
       animStyle.textShadow = `0 0 ${emphasis.glowRadius}px ${emphasis.color || "#FFD700"}`;
     }
   } else if (activeAnim && activeAnim.type === "scale" && isSpokenNow) {
-    animStyle.transform = `scale(${(activeAnim.scaleTo || 125) / 100})`;
+    animStyle.fontSize = `${(baseFontSize * (activeAnim.scaleTo || 125)) / 100}px`;
     if (activeAnim.color) animStyle.color = activeAnim.color;
     if (activeAnim.glowRadius) {
       animStyle.textShadow = `0 0 ${activeAnim.glowRadius}px ${activeAnim.color || "#FFD700"}`;
@@ -181,7 +187,7 @@ function WordSpan({
       onCommit={(t) => updateWordText(word.id, t)}
       fieldName={`word-${word.id}`}
       className={`
-        inline-block cursor-pointer select-none transition-transform
+        inline-block cursor-pointer select-none transition-[transform,font-size]
         ${
           isSelected
             ? "ring-2 ring-[#00FF66] ring-offset-2 ring-offset-transparent rounded"
