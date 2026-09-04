@@ -7,6 +7,7 @@ import EditableWord from "@/components/EditableWord";
 
 export default function Timeline() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const sfxTrackRef = useRef<HTMLDivElement>(null);
   const transcription = useEditorStore((s) => s.project.transcription);
   const currentTime = useEditorStore((s) => s.currentTime);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
@@ -14,8 +15,19 @@ export default function Timeline() {
   const selectWord = useEditorStore((s) => s.selectWord);
   const updateWordText = useEditorStore((s) => s.updateWordText);
   const retimeWord = useEditorStore((s) => s.retimeWord);
+  const sfxEvents = useEditorStore((s) => s.project.composition.sfxEvents);
+  const sfxEnabled = useEditorStore((s) => s.project.globalStyle.sfx.enabled);
+  const sfxPack = useEditorStore((s) => s.project.globalStyle.sfx.pack);
 
   const duration = transcription?.duration || 0;
+
+  // Role → lane color for SFX markers.
+  const sfxRoleColor: Record<string, string> = {
+    emphasis: "bg-blue-400",
+    punchline: "bg-amber-400",
+    cameraPunch: "bg-violet-400",
+    transition: "bg-cyan-400",
+  };
 
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -38,6 +50,18 @@ export default function Timeline() {
       widthPct: ((w.end - w.start) / duration) * 100,
     }));
   }, [transcription, duration]);
+
+  const sfxPositions = useMemo(
+    () =>
+      sfxEvents.map((ev) => ({
+        ev,
+        startPct: (ev.start / duration) * 100,
+        widthPct: Math.max(((ev.duration ?? 0.2) / duration) * 100, 0.4),
+      })),
+    [sfxEvents, duration]
+  );
+
+  const showSfxLane = sfxEnabled && sfxEvents.length > 0;
 
   return (
     <div className="w-full bg-zinc-900 border-t border-zinc-800 px-4 py-3">
@@ -137,6 +161,46 @@ export default function Timeline() {
           <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-red-500 rounded-full" />
         </div>
       </div>
+
+      {showSfxLane && (
+        <div className="mt-1.5">
+          <div
+            ref={sfxTrackRef}
+            onClick={(e) => {
+              if (!sfxTrackRef.current || !duration) return;
+              const rect = sfxTrackRef.current.getBoundingClientRect();
+              const x = e.clientX - rect.left;
+              setCurrentTime(Math.max(0, (x / rect.width) * duration));
+            }}
+            className="relative h-4 bg-zinc-800/60 rounded cursor-crosshair overflow-hidden"
+          >
+            {sfxPositions.map(({ ev, startPct, widthPct }) => (
+              <button
+                key={ev.id}
+                type="button"
+                title={`${ev.sound.replace(/-/g, " ")} · ${ev.role}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentTime(ev.start);
+                }}
+                className={`
+                  absolute top-0.5 bottom-0.5 rounded-sm
+                  ${sfxRoleColor[ev.role] || "bg-zinc-500"} opacity-80
+                  hover:opacity-100 hover:ring-1 hover:ring-white/60 transition-all
+                `}
+                style={{ left: `${startPct}%`, width: `${widthPct}%` }}
+              />
+            ))}
+            <div
+              className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10"
+              style={{ left: `${playheadPct}%` }}
+            />
+            <div className="absolute right-0 top-0 px-1.5 text-[9px] text-zinc-500 bg-zinc-900/70 rounded-bl">
+              SFX · {sfxPack} · {sfxEvents.length}
+            </div>
+          </div>
+        </div>
+      )}
 
       {transcription && (
         <div className="mt-2 flex flex-wrap gap-1">
