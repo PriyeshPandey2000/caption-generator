@@ -151,6 +151,59 @@ Implement AI-directed camera choreography: video-level zoom on emphasis words, d
 
 ---
 
+## 2026-09-04 — Phase 2: Auto-SFX (Sound Design Layer)
+
+### Session goal
+Add a fourth reaction to the emphasis moment — **sound**. Speech → typography → camera → SFX all fire together, backed by a deterministic, seeded generator and a Web Audio engine, with per-word manual override and a burned-in export mix.
+
+### Architecture (Preferences vs Composition split, per reviewer)
+- `GlobalStyle.sfx` holds only **SfxSettings preferences** (`enabled, density, volume, offsetMs, pack, sfxSeed`) — no generated events.
+- New `Project.composition.sfxEvents` holds generated **SfxEvent[]** (`source: auto | manual | choreography`) so events can be regenerated while preserving manual edits.
+- New `Project.composition.sfxOverrides: Record<wordId, "none" | SfxName>` — per-word manual decisions; any word present here is excluded from auto generation.
+
+### What was built
+- **`src/core/sfx.ts`**: 4 packs (`creator | cinematic | clean | meme`) map semantic `role` (`punchline | cameraPunch | emphasis | transition`) → sound. **role ≠ sound** — packs never expose raw filenames. Deterministic `mulberry32`-seeded `buildSfxTimeline(words, settings, cameraEvents, overrides)`: scores emphasis words (`emphasisStrength*0.5 + punchline*0.3 + cameraEvent*0.2`), culls by density (`top 0/10/25/40/50%`), clusters nearby hits (`<400ms` → ONE reaction). Resolves each candidate's own role through the pack.
+- **`src/core/audio.ts`**: `SfxEngine` singleton — one AudioContext (created + resumed in the Play gesture), video routed via `MediaElementSource → voiceGain → master` so ducking never touches `<video>.volume`. Windowed look-ahead scheduler (`LOOK_AHEAD_S = 1.2s`) driven by video time (source of truth) → AudioContext clock. Lazy per-sound `decodeAudioData`, preload, duck envelope anchored at the SFX start time.
+- **12 self-owned SFX** in `/public/sfx/` (ffmpeg-synthesized, deterministic, clean licensing — **no** Freesound dependency).
+- **Store** (`src/store/editor-store.ts`): `setSfxEnabled/Density/Volume/OffsetMs/Pack`, `regenerateSfx` (replaces only auto), `setSfxOverride` (per-word none/named/inherit), `addManualSfxEvent`. Choreography wires pack+density per bundle (MrBeast=creator/energetic, Cinematic=cinematic/subtle, etc.) and rebuilds auto SFX. Composition persisted.
+- **UI**: Presets `SfxControl` (toggle + density + volume + pack + Regenerate); Inspector per-word "Sound FX" dropdown (Inherit / None / specific sound).
+- **Export mix** (`ExportPanel.tsx`): when SFX is on, MP4 export consumes the same `sfxEvents` and mixes each sound into its video-time slot via ffmpeg `-filter_complex` → one input + `volume/asetrate/aresample/adelay/aformat` chain per event → `amix` over the video's stereo audio, `-map 0:v -map [aout]`. Validated against real ffmpeg (incl. multi-event + two inputs from the same sample). No Web Audio capture — export derives from event data.
+
+### CodeRabbit review — 11 findings, all addressed
+1. **Role preservation**: auto generator always resolved the `emphasis` sound despite scoring punchline/camera signals → `scoreCandidates` now tags each candidate with its dominant role and `buildSfxTimeline` resolves that role through the pack (matches PRD `role ≠ sound`).
+2. **SourceWordIds matching**: manual events were matched by ±0.2s timestamp proximity → now matched by `sourceWordIds.includes(word.id)` in both Inspector lookup paths.
+3. **Override/silence semantics**: "None" left the auto event audible and a named sound duplicated it → `sfxOverrides` + `setSfxOverride` now suppress (None), replace (named), or restore (Inherit) the event for a word.
+4. **Presets a11y**: SFX toggle got `aria-label` + `aria-pressed`.
+5. **Autoplay resume**: AudioContext resumed synchronously inside the Play gesture (was mount-effect only).
+6. **Elapsed-event replay**: `scheduleAhead` rebases the frontier to `currentVideoTime` after a `clearScheduled`, so resume/seek can't re-fire past events.
+7. **Stale retry**: `eventsGeneration` counter — a completed `loadBuffer` only retries if running AND the generation (event list) is unchanged.
+8. **Duck timing**: `dimVoice` anchored at the scheduled `when`, not `ctx.currentTime` (look-ahead was returning voice to full volume before the SFX).
+9. **Stale sources**: `clearScheduled` now `stop()`s every queued `AudioBufferSourceNode` (records carry the node).
+10. **Deterministic IDs**: auto event id = `auto:${seed}:${wordId}:${role}:${sound}` (no persisted churn on identical regeneration).
+11. **Volume immediately honored**: `setSfxVolume` remaps gain on every existing event, not just rebuilt ones.
+
+### Conflict resolution (PR #1 was CONFLICTING)
+- Root cause: `main` held the feature as one commit (`90320f5`) while `feat/auto-sfx` re-applied content-identical commits (`077b15d` = `90320f5`) plus 2 more → both sides changed the same files.
+- **Fix**: `git reset --hard 3b47e40` (pre-feature) on `main`, `git merge --ff-only feat/auto-sfx`, then forced-push `main`. `main` and `feat/auto-sfx` now point to the identical commit `cc243e7`; PR #1 is a clean fast-forward (no diff). Rewrote published `main` history (removed `90320f5`, content preserved).
+
+### Verified
+- Lint clean, production build clean.
+- Browser: SFX control renders, MrBeast choreography generates 2 events, 12 SFX files served, app loads with no runtime errors.
+- Export filtergraph validated against a real ffmpeg binary.
+
+### Decisions register updates
+
+| # | Decision | Rationale | Status |
+|---|----------|-----------|--------|
+| 18 | SFX preferences live in `GlobalStyle.sfx`; generated events live in `Composition.sfxEvents` | Style = preferences only; events = generated data; regenerate without mutating the style object | Done |
+| 19 | Semantic `role ≠ sound`; packs resolve `role → file` | Event carries meaning, not a raw filename; swap packs without touching the timeline | Done |
+| 20 | Seeded PRNG (mulberry32) + deterministic auto event IDs | Same seed + inputs = same timeline + same IDs, no persisted churn | Done |
+| 21 | Web Audio engine, ducking via `voiceGain` (not `<video>.volume`) | Precise scheduled playback + sidechain-style ducking of the media element | Done |
+| 22 | Windowed look-ahead scheduler; export consumes event data, no audio capture | Deterministic preview AND export from the same event list | Done |
+| 23 | Per-word `sfxOverrides` (none/named/inherit) persisted in Composition | Manual decisions survive regeneration and suppress/replace auto events | Done |
+
+---
+
 ## Decisions register
 
 | # | Decision | Rationale | Status |
