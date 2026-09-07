@@ -312,6 +312,8 @@ The first PR review's 10 comments were already fixed in the prior session; this 
 - The landing hero's four-card grid (incl. "AI choreography in plain English") is replaced with a clearly-marked dashed placeholder — `Reserved for something important` — so the block can be swapped for real content later.
 - Removed the now-unused `FeatureCard` component and `FEATURE_ICONS` map (lint-clean).
 
+**Follow-up: feature cards restored.** The hero's four-card grid was later put back (turn: "reserved for something important — we removed the features we had earlier"). The `FeatureCard`/`FEATURE_ICONS` code was re-added and the dashed `Reserved for something important` placeholder removed from the landing hero. This lives in the uncommitted working tree.
+
 ### Decisions
 - **Distinguish conversion failure from upload failure in the ffmpeg fallback.** A file ffmpeg can't read should say so; but a Groq timeout/network error on the normalised upload is an *upload* failure and must surface as its own status (504), not be silently misreported as the original rejection. It took an explicit `TimeoutError` rethrow to reconnect the fallback to the route's 504 handler.
 - **Every stale async result needs a generation.** The save-failure report and the pending video restore both got bitten by an old operation landing on new state; a monotonic `videoSaveGeneration` (and `project.id` for the restore) scopes async consequences to their origin.
@@ -354,10 +356,17 @@ Restructure the bottom tab bar into two collapsible side panels (Transcript + St
 - Base `zinc-950 → zinc-900`, panels `zinc-900 → zinc-800`, controls one step lighter; hero headline switched from the animated `hero-word-pop` to a gradient-clipped "speech"/"animated typography" treatment; transcribing spinner and highlight states use the `#00FF66` accent.
 
 ### PRD
-- Added a Phase 3 candidate: **Player transport controls** — replace the plain-text "Play" with an icon-only `▶`/`⏸` and optional `▶ 00:12 / 02:01` time readout, a compact toolbar (`↶ ▶ ↷  time  🔊`), and a playback-speed menu (`0.5×/1×/1.5×/2×`). Not built.
+- Added a Phase 3 candidate: **Player transport controls** — replace the plain-text "Play" with an icon-only `▶`/`⏸` and optional `▶ 00:12 / 02:01` time readout, a compact toolbar (`↶ ▶ ↷  time  🔊,`), and a playback-speed menu (`0.5×/1×/1.5×/2×`). Not built.
+- Added a Phase 3 candidate: **Export dropdown** — consolidate the header's three separate `SRT / VTT / Export MP4` buttons into a single `Export ▾` (main button exports MP4; the item list exposes Export MP4 / Export SRT / Export VTT), so the header stops advertising three export buttons at once. Not built.
 
 ### Verified
 - `tsc --noEmit` clean; lint clean (only the pre-existing `ApiKeyInput`/`setApiKey` unused warnings).
+
+### CodeRabbit round 3 (PR #3) — review fixes applied in the working tree
+- **Remeasure selection frames after style/text edits (Major).** The `frame`/`wordFrame` effects only depended on `isSelected`, `layout.scale`, `currentTime`, `activeGroup?.id` — a floating-toolbar font change or a committed word-text edit reflows the row without touching those deps, so the handles/outline drifted. Both effects now attach a `ResizeObserver` to the row (and the single word element) and remeasure on any real geometry change; also added the missing `layout.scale` to the word-frame deps (dragging a resize handle while a single word was selected left it stale).
+- **Explicit `fontFamily` option for unknown/missing values (Minor).** `WordStyle.fontFamily` is optional and pre-Presets use values (`Arial Black`, `system-ui`) not in `TOOLBAR_FONTS`, so the select showed "Anton" while the caption used another family (or the first option for `undefined`). The select now renders a fallback `<option>` titled from the family's first token (or "Custom") when the current value isn't a listed font.
+- **Secondary text contrast (Minor).** `text-zinc-500`/`zinc-600` on the `bg-zinc-800` Timeline ran 1.93–3.08:1; the `or` chip `zinc-500` on `zinc-700` was 2.16:1. Bumped those to `text-zinc-400`. The `zinc-400` UploadZone helper text was already above 4.5:1 — left alone.
+- **Caret lookup on older Firefox (Minor).** `caretRangeFromPoint` is Firefox 150+; older versions only have `caretPositionFromPoint` (and the optional call returned `undefined`, exiting before seeking). The handler now tries `caretPositionFromPoint` first and falls back to `caretRangeFromPoint`, normalizing both shapes (`offsetNode`/`offset` vs `startContainer`/`startOffset`) into `{container, offset}` for the shared tree-walker.
 
 ### Still open
 - Timeline word search/filter (long-video gap from the Hormozi session).
@@ -396,9 +405,10 @@ Restructure the bottom tab bar into two collapsible side panels (Transcript + St
 | 25 | Async video restore is scoped to `project.id`; a New Project invalidates a pending restore | Otherwise a stale persisted blob reappears over a freshly started project | Committed `56f67d5` |
 | 26 | `setTranscription` preserves the existing `project.error` instead of clearing it | A video-persistence failure reported asynchronously must not be wiped by a later successful transcription | Committed `56f67d5` |
 | 27 | Video save-failure reports are gated on a `videoSaveGeneration` counter | A stale `persisted === false` from an old blob must not `setError` on newer state | Committed `56f67d5` |
-| 28 | Hero feature-card grid replaced with a placeholder block | Area reserved for content to be defined later; `FeatureCard`/icons removed since unused | Working tree |
+| 28 | Hero feature-card grid was briefly replaced with a placeholder, then restored | The `FeatureCard`/`FEATURE_ICONS` code was re-added after the user asked to keep the earlier features; placeholder removed | Working tree |
 | 29 | Transcript and Style live in separate collapsible side panels, not a shared bottom tab bar | Both need to be visible simultaneously; collapsing to a vertical tab keeps room for the canvas/timeline | Working tree |
 | 30 | Selected-caption toolbar and resize handles are positioned from measured `getBoundingClientRect` geometry, re-measured per `currentTime` tick | The row scales via paint-only `transform: scale()`, so CSS-anchor-based handles would drift from the rendered text; active-word pops change size continuously during playback | Working tree |
 | 31 | Resize is uniform `scale` driven by a direction-projected drag on 8 handles | A caption is text, not a box — no width/height; projecting drag onto each handle's outward vector makes grow/shrink intuitive from any corner or edge | Working tree |
 | 32 | Transcript sentence edits commit only when the word count is unchanged | Splitting/merging words would leave a word with no timestamp, which the data model can't represent — revert, don't corrupt timing | Working tree |
 | 33 | Preset list applies the full choreography bundle for shared names (Hormozi/MrBeast/Clean/Neon), plain style+motion otherwise | One list, not two; the richer bundle is strictly better for those names | Working tree |
+| 34 | Selection frames re-measure via `ResizeObserver` attached to the row/word element, not just dependency-driven effects | Style/text edits reflow geometry without touching the effect deps; observing the element catches every real geometry change (incl. edits), and the word frame now also re-measures on `layout.scale` | Working tree |

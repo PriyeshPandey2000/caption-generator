@@ -57,8 +57,8 @@ export default function UploadZone({ onFileSelect, onDemo }: UploadZoneProps) {
           transition-all duration-200
           ${
             isDragging
-              ? "border-[#00ff66] bg-[#00ff66]/10 scale-[1.02] shadow-[0_0_40px_rgba(0,255,102,0.15)]"
-              : "border-zinc-700 bg-zinc-800/50 hover:border-zinc-500 hover:bg-zinc-700/50 hover:shadow-[0_0_30px_rgba(0,255,102,0.06)]"
+              ? "border-[#00ff66] bg-[#00ff66]/10"
+              : "border-zinc-700 bg-zinc-800/50 hover:border-zinc-500 hover:bg-zinc-700/50"
           }
         `}
       >
@@ -109,7 +109,7 @@ export default function UploadZone({ onFileSelect, onDemo }: UploadZoneProps) {
       </div>
 
       {onDemo && (
-        <div className="flex items-center gap-3 text-xs text-zinc-500">
+        <div className="flex items-center gap-3 text-xs text-zinc-400">
           <span className="bg-zinc-700 px-3 py-1.5 rounded-full">or</span>
           <button
             onClick={onDemo}

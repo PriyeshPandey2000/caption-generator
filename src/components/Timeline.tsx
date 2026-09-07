@@ -118,8 +118,8 @@ export default function Timeline() {
         <span className="text-xs text-zinc-400 font-mono w-20">
           {formatTime(currentTime)}
         </span>
-        <span className="text-xs text-zinc-600">/</span>
-        <span className="text-xs text-zinc-500 font-mono w-20">
+        <span className="text-xs text-zinc-400">/</span>
+        <span className="text-xs text-zinc-400 font-mono w-20">
           {formatTime(duration)}
         </span>
 

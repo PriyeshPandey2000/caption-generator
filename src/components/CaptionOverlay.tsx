@@ -74,14 +74,25 @@ export default function CaptionOverlay({
       setFrame(null);
       return;
     }
-    const rowRect = rowRef.current.getBoundingClientRect();
-    const wrapRect = wrapperRef.current.getBoundingClientRect();
-    setFrame({
-      left: rowRect.left - wrapRect.left,
-      top: rowRect.top - wrapRect.top,
-      width: rowRect.width,
-      height: rowRect.height,
-    });
+    const measure = () => {
+      if (!rowRef.current || !wrapperRef.current) return;
+      const rowRect = rowRef.current.getBoundingClientRect();
+      const wrapRect = wrapperRef.current.getBoundingClientRect();
+      setFrame({
+        left: rowRect.left - wrapRect.left,
+        top: rowRect.top - wrapRect.top,
+        width: rowRect.width,
+        height: rowRect.height,
+      });
+    };
+    measure();
+    // Also re-measure when the rendered geometry changes without any of the
+    // deps below changing — a floating-toolbar font-family/size edit or a
+    // committed word-text edit reflows the row (word pops already tick via
+    // currentTime). Without this the selection frame drifts from the text.
+    const ro = new ResizeObserver(measure);
+    ro.observe(rowRef.current);
+    return () => ro.disconnect();
   }, [isSelected, layout.scale, currentTime, activeGroup?.id]);
 
   // A single selected word gets the same border-frame treatment as a
@@ -99,16 +110,25 @@ export default function CaptionOverlay({
       setWordFrame(null);
       return;
     }
-    const wordRect = wordEl.getBoundingClientRect();
-    const wrapRect = wrapperRef.current.getBoundingClientRect();
-    const buffer = 8; // breathing room so the dashed frame isn't flush against the glyphs
-    setWordFrame({
-      left: wordRect.left - wrapRect.left - buffer,
-      top: wordRect.top - wrapRect.top - buffer,
-      width: wordRect.width + buffer * 2,
-      height: wordRect.height + buffer * 2,
-    });
-  }, [singleWordId, currentTime, activeGroup?.id]);
+    const measure = () => {
+      if (!rowRef.current || !wrapperRef.current) return;
+      const wordRect = wordEl.getBoundingClientRect();
+      const wrapRect = wrapperRef.current.getBoundingClientRect();
+      const buffer = 8; // breathing room so the dashed frame isn't flush against the glyphs
+      setWordFrame({
+        left: wordRect.left - wrapRect.left - buffer,
+        top: wordRect.top - wrapRect.top - buffer,
+        width: wordRect.width + buffer * 2,
+        height: wordRect.height + buffer * 2,
+      });
+    };
+    measure();
+    // Font/size/text edits on this word reflow it without changing the deps
+    // below; a ResizeObserver keeps the single-word frame glued to it.
+    const ro = new ResizeObserver(measure);
+    ro.observe(wordEl);
+    return () => ro.disconnect();
+  }, [singleWordId, layout.scale, currentTime, activeGroup?.id]);
 
   if (!transcription || activeWords.length === 0) return null;
 
@@ -413,11 +433,16 @@ function FloatingToolbar({
       onMouseDown={(e) => e.stopPropagation()}
     >
       <select
-        value={style.fontFamily}
+        value={style.fontFamily ?? ""}
         onChange={(e) => onChange({ fontFamily: e.target.value })}
         className="bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-700 focus:outline-none max-w-[92px]"
         title="Font family"
       >
+        {!TOOLBAR_FONTS.some((f) => f.value === style.fontFamily) && (
+          <option value={style.fontFamily ?? ""}>
+            {style.fontFamily?.split(",")[0] ?? "Custom"}
+          </option>
+        )}
         {TOOLBAR_FONTS.map((f) => (
           <option key={f.label} value={f.value}>
             {f.label}

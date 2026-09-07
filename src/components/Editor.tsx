@@ -290,8 +290,6 @@ export default function Editor() {
                       style={{
                         backgroundImage:
                           "linear-gradient(120deg,#00FF66,#22C55E)",
-                        filter:
-                          "drop-shadow(0 0 18px rgba(0,255,102,0.35))",
                       }}
                     >
                       speech
@@ -302,8 +300,6 @@ export default function Editor() {
                       style={{
                         backgroundImage:
                           "linear-gradient(120deg,#00FF66,#22C55E)",
-                        filter:
-                          "drop-shadow(0 0 18px rgba(0,255,102,0.35))",
                       }}
                     >
                       animated typography
@@ -313,9 +309,13 @@ export default function Editor() {
                     Every aspect customisable — precision | scale | word level.
                     But you never have to customise anything.
                   </p>
-                  {/* TODO: important content goes here */}
-                  <div className="mt-5 w-full max-w-xl rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-6 text-center text-sm text-zinc-500">
-                    Reserved for something important.
+                  <div className="mt-5 w-full max-w-xl">
+                    <div className="grid grid-cols-2 gap-2">
+                      <FeatureCard icon="upload" label="Upload → styled captions in seconds" />
+                      <FeatureCard icon="drag" label="Drag & scale — “make it big type”" />
+                      <FeatureCard icon="sparkle" label="AI choreography in plain English" />
+                      <FeatureCard icon="export" label="Export MP4 / SRT / VTT — all in-browser" />
+                    </div>
                   </div>
                 </div>
                 <div className="w-full max-w-2xl">
@@ -444,6 +444,26 @@ export default function Editor() {
             <CollapsedSidebarTab label="Style" onClick={() => setShowStylePanel(true)} />
           ))}
       </div>
+    </div>
+  );
+}
+
+const FEATURE_ICONS: Record<string, string> = {
+  upload: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12",
+  drag: "M7 16V4m0 0L3 8m4-4l4 4m6 8v-4m0 0l4 4m-4-4l-4 4M4 20h16",
+  sparkle: "M12 3v4m0 10v4m-9-9h4m10 0h4M6.34 6.34l2.83 2.83m5.66 5.66l2.83 2.83M6.34 17.66l2.83-2.83m5.66-5.66l2.83-2.83",
+  export: "M12 4v12m0 0l-4-4m4 4l4-4M4 20h16",
+};
+
+function FeatureCard({ icon, label }: { icon: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 transition-colors hover:border-[#00ff66]/25 hover:bg-white/[0.05]">
+      <div className="shrink-0 w-7 h-7 rounded-lg bg-[#00ff66]/10 flex items-center justify-center">
+        <svg className="w-3.5 h-3.5 text-[#00ff66]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={FEATURE_ICONS[icon]} />
+        </svg>
+      </div>
+      <span className="text-xs text-zinc-300 leading-tight">{label}</span>
     </div>
   );
 }

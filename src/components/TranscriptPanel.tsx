@@ -203,19 +203,38 @@ const EditableSentence = memo(function EditableSentence({
         // flat character offset into this sentence's text) and seek there,
         // same as a plain click does outside edit mode.
         const doc = e.currentTarget.ownerDocument;
-        const getRange = (doc as unknown as {
+        // Older Firefox (pre-150) exposes only caretPositionFromPoint, not
+        // caretRangeFromPoint; newer ones expose both. Try the standard API
+        // first and normalize both shapes into {container, offset}.
+        const caretDoc = doc as unknown as {
+          caretPositionFromPoint?: (x: number, y: number) => {
+            offsetNode: Node | null;
+            offset: number;
+          } | null;
           caretRangeFromPoint?: (x: number, y: number) => Range | null;
-        }).caretRangeFromPoint;
-        const range = getRange?.call(doc, e.clientX, e.clientY);
-        if (!range || !ref.current?.contains(range.startContainer)) return;
+        };
+        let container: Node | null = null;
+        let startOffset = 0;
+        const pos = caretDoc.caretPositionFromPoint?.call(doc, e.clientX, e.clientY);
+        if (pos?.offsetNode) {
+          container = pos.offsetNode;
+          startOffset = pos.offset;
+        } else {
+          const range = caretDoc.caretRangeFromPoint?.call(doc, e.clientX, e.clientY);
+          if (range) {
+            container = range.startContainer;
+            startOffset = range.startOffset;
+          }
+        }
+        if (!container || !ref.current?.contains(container)) return;
 
         let offset = 0;
         const walker = document.createTreeWalker(ref.current, NodeFilter.SHOW_TEXT);
         let node = walker.nextNode();
         let found = false;
         while (node) {
-          if (node === range.startContainer) {
-            offset += range.startOffset;
+          if (node === container) {
+            offset += startOffset;
             found = true;
             break;
           }
