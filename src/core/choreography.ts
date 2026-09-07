@@ -12,6 +12,45 @@ export interface ChoreographyBundle {
 }
 
 const styleBundles: Record<string, ChoreographyBundle> = {
+  hormozi: {
+    description: "Alex Hormozi style — bold Montserrat, thick black stroke, no box, lower-third",
+    emphasisWords: ["money", "never", "always", "biggest", "free", "proof", "fastest"],
+    cameraMovement: { enabled: false, intensity: 0 },
+    sfx: { enabled: false, pack: "clean", density: "subtle" },
+    global: {
+      style: {
+        fontFamily: "var(--font-anton), Impact, 'Arial Black', sans-serif",
+        fontSize: 52,
+        color: "#FFFFFF",
+        strokeColor: "#000000",
+        strokeWidth: 1,
+        shadowColor: "rgba(0,0,0,0.5)",
+        shadowBlur: 4,
+        fontWeight: 900,
+        textTransform: "uppercase",
+        letterSpacing: 0,
+        backgroundColor: "transparent",
+      },
+      motion: {
+        entrance: {
+          type: "scale",
+          scaleFrom: 80,
+          scaleTo: 100,
+          duration: 180,
+          easing: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        },
+        active: {
+          type: "scale",
+          scaleFrom: 100,
+          scaleTo: 100,
+          duration: 100,
+          color: "#FFD700",
+        },
+        exit: { type: "fade", from: 1, to: 0, duration: 120 },
+      },
+      transform: { x: 0, y: 80, scale: 1 },
+    },
+  },
   mrbeast: {
     description: "High-energy MrBeast style — punchy, loud, yellow-accented",
     emphasisWords: ["pop", "anything", "big", "energy", "fastest", "never"],
@@ -207,6 +246,9 @@ const styleBundles: Record<string, ChoreographyBundle> = {
 };
 
 const ALIASES: Record<string, string> = {
+  hormozi: "hormozi",
+  "alex hormozi": "hormozi",
+  gymshark: "hormozi",
   mrbeast: "mrbeast",
   "mr beast": "mrbeast",
   beast: "mrbeast",

@@ -7,6 +7,27 @@ import { resolveChoreography } from "@/core/choreography";
 
 const presets: { name: string; style: Partial<GlobalStyle> }[] = [
   {
+    name: "Hormozi",
+    style: {
+      style: {
+        fontFamily: "var(--font-anton), Impact, 'Arial Black', sans-serif",
+        fontSize: 52,
+        color: "#FFFFFF",
+        strokeColor: "#000000",
+        strokeWidth: 1,
+        fontWeight: 900,
+        textTransform: "uppercase",
+        letterSpacing: 0,
+      },
+      motion: {
+        entrance: { type: "scale", scaleFrom: 80, scaleTo: 100, duration: 180, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
+        active: { type: "scale", scaleFrom: 100, scaleTo: 100, duration: 100, color: "#FFD700" },
+        exit: { type: "fade", from: 1, to: 0, duration: 120 },
+      },
+      transform: { x: 0, y: 80, scale: 1 },
+    },
+  },
+  {
     name: "Clean",
     style: {
       style: {
@@ -152,7 +173,7 @@ export default function Presets() {
         </button>
       </div>
       <div className="flex flex-wrap gap-1 mb-4">
-        {["MrBeast", "Clean", "Cinematic", "Comedy", "Neon", "Calm"].map(
+        {["Hormozi", "MrBeast", "Clean", "Cinematic", "Comedy", "Neon", "Calm"].map(
           (sug) => (
             <button
               key={sug}

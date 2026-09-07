@@ -1,13 +1,15 @@
 "use client";
 
 import { useEditorStore } from "@/store/editor-store";
-import { WordStyle, WordMotion, AnimationRecipe, SfxName, SfxEvent } from "@/core/types";
-import { MIN_CAPTION_Y, MAX_CAPTION_Y } from "@/core/styles";
+import { Word, WordStyle, WordMotion, AnimationRecipe, SfxName, SfxEvent } from "@/core/types";
+import { MIN_CAPTION_Y, MAX_CAPTION_Y, resolveWordStyle, resolveWordMotion } from "@/core/styles";
 
 export default function Inspector() {
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
   const transcription = useEditorStore((s) => s.project.transcription);
   const globalStyle = useEditorStore((s) => s.project.globalStyle);
+  const speakerStyles = useEditorStore((s) => s.project.speakerStyles);
+  const speakerMotions = useEditorStore((s) => s.project.speakerMotions);
   const updateWordStyle = useEditorStore((s) => s.updateWordStyle);
   const updateWordMotion = useEditorStore((s) => s.updateWordMotion);
   const updateGlobalStyle = useEditorStore((s) => s.updateGlobalStyle);
@@ -18,6 +20,13 @@ export default function Inspector() {
     selectedWordIds.length === 1 && transcription
       ? transcription.words.find((w) => w.id === selectedWordIds[0])
       : null;
+
+  const selectedWords: Word[] =
+    selectedWordIds.length > 1 && transcription
+      ? selectedWordIds
+          .map((id) => transcription.words.find((w) => w.id === id))
+          .filter((w): w is Word => !!w)
+      : [];
 
   const addManualCameraEvent = useEditorStore(
     (s) => s.addManualCameraEvent
@@ -46,6 +55,50 @@ export default function Inspector() {
             e.source === "manual" && (e.sourceWordIds ?? []).includes(selectedWord.id)
         )
       : undefined;
+
+  if (selectedWords.length > 1) {
+    const first = selectedWords[0];
+    return (
+      <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-white">
+            {selectedWords.length} words selected
+          </h3>
+          <button
+            onClick={() => {
+              for (const w of selectedWords) {
+                resetWordStyle(w.id);
+                resetWordMotion(w.id);
+              }
+            }}
+            className="text-xs text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
+          >
+            Reset all
+          </button>
+        </div>
+
+        <h4 className="text-xs font-medium text-zinc-400 mb-2">
+          Style Override (applies to all {selectedWords.length})
+        </h4>
+        <StyleControls
+          style={resolveWordStyle(first, speakerStyles, globalStyle)}
+          onChange={(s) => {
+            for (const w of selectedWords) updateWordStyle(w.id, s);
+          }}
+        />
+
+        <h4 className="text-xs font-medium text-zinc-400 mt-6 mb-2">
+          Motion Override (applies to all)
+        </h4>
+        <MotionControls
+          motion={resolveWordMotion(first, speakerMotions, globalStyle)}
+          onChange={(m) => {
+            for (const w of selectedWords) updateWordMotion(w.id, m);
+          }}
+        />
+      </div>
+    );
+  }
 
   if (!selectedWord) {
     return (
@@ -96,7 +149,7 @@ export default function Inspector() {
 
       <h4 className="text-xs font-medium text-zinc-400 mb-2">Style Override</h4>
       <StyleControls
-        style={selectedWord.style || {}}
+        style={resolveWordStyle(selectedWord, speakerStyles, globalStyle)}
         onChange={(s) => updateWordStyle(selectedWord.id, s)}
       />
 
@@ -104,7 +157,7 @@ export default function Inspector() {
         Motion Override
       </h4>
       <MotionControls
-        motion={selectedWord.animation || {}}
+        motion={resolveWordMotion(selectedWord, speakerMotions, globalStyle)}
         onChange={(m) => updateWordMotion(selectedWord.id, m)}
       />
 

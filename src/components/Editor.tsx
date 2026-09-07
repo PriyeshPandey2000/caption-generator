@@ -61,6 +61,10 @@ export default function Editor() {
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const restorePersisted = useEditorStore((s) => s.restorePersisted);
   const newProject = useEditorStore((s) => s.newProject);
+  const undo = useEditorStore((s) => s.undo);
+  const redo = useEditorStore((s) => s.redo);
+  const canUndo = useEditorStore((s) => s.canUndo);
+  const canRedo = useEditorStore((s) => s.canRedo);
 
   const isDemoMode = !!transcription && !videoUrl;
   useDemoPlayback(isDemoMode);
@@ -72,7 +76,12 @@ export default function Editor() {
     }
     // Restore the uploaded video from IndexedDB so the preview survives a
     // page refresh (object URLs do not persist across reloads).
+    let cancelled = false;
     loadVideoFromStorage().then((video) => {
+      if (cancelled) return;
+      // A user selection made while this read was pending wins over the
+      // persisted blob.
+      if (useEditorStore.getState().videoFile) return;
       if (video && video.blob) {
         const file = new File([video.blob], video.name || "video", {
           type: video.type || video.blob.type || "video/mp4",
@@ -81,6 +90,9 @@ export default function Editor() {
         useEditorStore.getState().setRestoredVideo(file, url);
       }
     });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -93,6 +105,19 @@ export default function Editor() {
         el.tagName === "SELECT" ||
         el.isContentEditable;
       if (isTyping) return;
+
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
+        return;
+      }
 
       if (e.code === "Space") {
         if (isDemoMode) {
@@ -110,15 +135,11 @@ export default function Editor() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isDemoMode, isPlaying, setIsPlaying]);
+  }, [isDemoMode, isPlaying, setIsPlaying, undo, redo]);
 
   const handleFileSelect = useCallback(
     async (file: File) => {
       setVideoFile(file);
-      if (!apiKey) {
-        setError("Enter your Groq API key to transcribe");
-        return;
-      }
 
       setIsTranscribing(true);
       setError(null);
@@ -151,7 +172,9 @@ export default function Editor() {
         let duration = data.duration || 0;
         try {
           const real = await getVideoDuration(file);
-          if (real > 0) duration = real;
+          // video.duration is Infinity for container-less recordings (e.g.
+          // MediaRecorder WebM); never let that poison the timeline.
+          if (Number.isFinite(real) && real > 0) duration = real;
         } catch {
           // fall back to the API-reported duration
         }
@@ -198,14 +221,33 @@ export default function Editor() {
           </Link>
           {transcription && (
             <span className="text-xs text-zinc-500">
-              {transcription.words.length} words ·{" "}
-              {transcription.captionGroups.length} groups
+              {transcription.words.length} words
             </span>
           )}
         </div>
         <div className="flex items-center gap-3">
-          <ApiKeyInput onKeySet={setApiKey} />
+          {/* Groq key now comes from the server env var (GROQ_API_KEY) —
+              no need to expose a key field to end users. */}
+          {/* <ApiKeyInput onKeySet={setApiKey} /> */}
           <ExportPanel />
+          <div className="flex items-center gap-1">
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              title="Undo last change (⌘Z / Ctrl+Z)"
+              className="px-2.5 py-1.5 text-sm rounded-lg border border-white/15 transition-colors disabled:opacity-35 disabled:pointer-events-none bg-transparent text-white hover:bg-white/10"
+            >
+              ↺ Undo
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              title="Redo (⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y)"
+              className="px-2.5 py-1.5 text-sm rounded-lg border border-white/15 transition-colors disabled:opacity-35 disabled:pointer-events-none bg-transparent text-white hover:bg-white/10"
+            >
+              ↻ Redo
+            </button>
+          </div>
           <button
             onClick={() => {
               clearProjectFromStorage();
@@ -271,9 +313,13 @@ export default function Editor() {
                 </div>
 
                 {isTranscribing && (
-                  <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center rounded-lg z-20">
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center rounded-lg z-20"
+                  >
                     <div className="flex flex-col items-center gap-3">
-                      <div className="w-8 h-8 border-2 border-[#00FF66] border-t-transparent rounded-full animate-spin" />
+                      <div aria-hidden="true" className="w-8 h-8 border-2 border-[#00FF66] border-t-transparent rounded-full animate-spin" />
                       <p className="text-sm text-zinc-200">Transcribing your video…</p>
                       <p className="text-xs text-zinc-500">
                         This can take a moment for longer clips

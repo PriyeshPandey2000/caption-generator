@@ -125,11 +125,16 @@ export async function loadVideoFromStorage(): Promise<PersistedVideo | null> {
   }
 }
 
-export async function clearVideoFromStorage(): Promise<void> {
-  if (typeof window === "undefined" || !("indexedDB" in window)) return;
+// Returns true when the video was removed, false when deletion failed (no
+// IndexedDB, transaction error, etc.). Callers surface a warning so a video
+// can't silently survive a "New Project" and resurrect on the next reload.
+export async function clearVideoFromStorage(): Promise<boolean> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return false;
   try {
     await withStore("readwrite", (store) => store.delete(VIDEO_KEY));
-  } catch {
-    // ignore
+    return true;
+  } catch (err) {
+    console.warn("CaptionLab: could not remove video from IndexedDB", err);
+    return false;
   }
 }

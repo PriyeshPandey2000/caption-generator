@@ -92,7 +92,7 @@ export default function Timeline() {
 
     const onSeeked = () => {
       if (cancelled || !ctx) return;
-      if (!canvas.width) {
+      if (frames.length === 0) {
         canvas.height = 64;
         canvas.width = Math.round((video.videoWidth / video.videoHeight) * 64) || 40;
       }
@@ -150,6 +150,16 @@ export default function Timeline() {
               onClick={(e) => {
                 e.stopPropagation();
                 selectWord(w.id, e.metaKey || e.ctrlKey);
+                // Seek to the exact point clicked (not w.start) — the click
+                // landed inside this word's own block, so it's already
+                // within [w.start, w.end], which keeps the word visible in
+                // the preview without snapping the playhead away from where
+                // the user actually clicked.
+                if (containerRef.current && duration) {
+                  const rect = containerRef.current.getBoundingClientRect();
+                  const pct = (e.clientX - rect.left) / rect.width;
+                  setCurrentTime(pct * duration);
+                }
               }}
               className={`
                 absolute top-1 bottom-1 rounded-sm cursor-pointer transition-opacity

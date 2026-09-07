@@ -90,13 +90,24 @@ No test framework is installed yet (`package.json` has none) — the core engine
 ### 1.3 Direct manipulation on preview
 
 - **Click → drag** to reposition (respect safe areas).
+- **Platform Safe-Zones with magnetic snapping** (headline differentiator):
+  - Toggleable on-canvas overlays for **Instagram Reels / TikTok / YouTube Shorts** showing dashed inset rectangles where each platform's UI chrome sits over the video.
+  - Caption drag **snaps to the inside edges** of the active safe zone, so text can never hide behind like/comment/share rails, carousels, profile headers, or Shorts' title block.
+  - Safe zones are **percentage-based insets** (not pixel copies of a specific app build — platform UI shifts between releases and devices), with editable per-platform insets.
+  - Defaults for 9:16:
+    - **Reels:** ~right 18–20%, bottom 18–22%, top 10–12%, left clear.
+    - **TikTok:** ~right 25%, bottom 22%, top 8–10%.
+    - **YouTube Shorts:** ~bottom 28%, left/right ~18%.
+  - Same mechanism as broadcast "title-safe" (keep text inside 90% of frame), but per-platform and magnetic.
 - **Corners/edges → scale** ("make it big type").
+- **Rubber-band / marquee multi-select ✅ Implemented** — drag over empty canvas draws a selection box (Figma/Excalidraw-style); every word whose on-screen box intersects it gets selected. Inspector shows a dedicated bulk "N words selected" panel (Style + Motion Override apply to all selected words at once) instead of silently falling back to Global Style — closes a real correctness gap where editing a multi-selection used to edit the whole video's default style instead.
+- **Floating contextual toolbar — not yet built.** A property toolbar (font, color, stroke, background) that follows the selected caption directly on canvas, so styling doesn't require looking away to the sidebar Inspector. Proposed as the next Figma/Excalidraw-parity step; scoped but not started.
 - **Timeline:** click to seek; **drag edges to retime**; click transcript word → playhead moves there.
 - Live preview, real-time (no render-to-see).
 
 ### 1.4 Animation recipes, Style vs Motion split
 
-- **Style:** font, size, color, stroke, shadow, background, case, position, max-width/wrap, safe-area.
+- **Style:** font, size, color, stroke, shadow, background, case, position, max-width/wrap, platform safe-zone (Reels/TikTok/Shorts).
 - **Motion:** entrance, active-word, exit, emphasis, transitions, timing, easing.
 - **Recipes** = one-click presets, fully parameter-editable:
   - entrance `scale 80→110→100 / 180ms / easeOutBack`

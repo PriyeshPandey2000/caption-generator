@@ -128,7 +128,7 @@ export default function VideoPreview() {
             "linear-gradient(to top, rgba(0,0,0,0.65), transparent)",
         }}
       />
-      <CaptionOverlay />
+      <CaptionOverlay onBackgroundClick={handlePlayPause} />
 
       <button
         onClick={handlePlayPause}

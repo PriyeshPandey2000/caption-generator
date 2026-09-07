@@ -6,6 +6,8 @@ import { join } from "path";
 import { randomUUID } from "crypto";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+const GROQ_TIMEOUT_MS = 120_000;
+const FFMPEG_TIMEOUT_MS = 5 * 60_000;
 
 const ACCEPTED_EXTS = new Set([
   "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "opus", "wav", "webm",
@@ -73,6 +75,7 @@ async function tryGroqDirect(
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
     body: fd,
+    signal: AbortSignal.timeout(GROQ_TIMEOUT_MS),
   });
 }
 
@@ -88,15 +91,21 @@ async function tryWithFfmpeg(
   const id = randomUUID();
   const tmpIn = join(tmpdir(), `${id}_in`);
   const tmpWav = join(tmpdir(), `${id}.wav`);
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? "mp4";
+  // The extension is attacker-controlled (from the uploaded filename). Only
+  // accept a safe alphanumeric value so the temp path can never escape the
+  // tmp dir, and sanitize before we derive the path we later unlink.
+  const rawExt = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const ext = /^[a-z0-9]{1,6}$/.test(rawExt) ? rawExt : "bin";
+  const tmpInPath = `${tmpIn}.${ext}`;
 
   try {
-    await writeFile(`${tmpIn}.${ext}`, Buffer.from(await file.arrayBuffer()));
+    await writeFile(tmpInPath, Buffer.from(await file.arrayBuffer()));
 
     await new Promise<void>((resolve, reject) =>
       execFile(
         "ffmpeg",
-        ["-i", `${tmpIn}.${ext}`, "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", "-y", tmpWav],
+        ["-i", tmpInPath, "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", "-y", tmpWav],
+        { timeout: FFMPEG_TIMEOUT_MS, killSignal: "SIGKILL" },
         (err) => (err ? reject(err) : resolve())
       )
     );
@@ -116,24 +125,14 @@ async function tryWithFfmpeg(
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}` },
       body: fd,
+      signal: AbortSignal.timeout(GROQ_TIMEOUT_MS),
     });
   } catch (err) {
     console.error("ffmpeg normalization failed:", err);
     return null;
   } finally {
     await Promise.allSettled([
-      unlink(`${tmpIn}.mp4`).catch(() => {}),
-      unlink(`${tmpIn}.mov`).catch(() => {}),
-      unlink(`${tmpIn}.avi`).catch(() => {}),
-      unlink(`${tmpIn}.mkv`).catch(() => {}),
-      unlink(`${tmpIn}.m4v`).catch(() => {}),
-      unlink(`${tmpIn}.ts`).catch(() => {}),
-      unlink(`${tmpIn}.mts`).catch(() => {}),
-      unlink(`${tmpIn}.webm`).catch(() => {}),
-      unlink(`${tmpIn}.ogg`).catch(() => {}),
-      unlink(`${tmpIn}.mp3`).catch(() => {}),
-      unlink(`${tmpIn}.m4a`).catch(() => {}),
-      unlink(`${tmpIn}.wav`).catch(() => {}),
+      unlink(tmpInPath).catch(() => {}),
       unlink(tmpWav).catch(() => {}),
     ]);
   }
@@ -147,7 +146,8 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    const apiKey = formData.get("apiKey") as string | null;
+    const userKey = formData.get("apiKey") as string | null;
+    const apiKey = userKey || process.env.GROQ_API_KEY;
 
     if (!file) {
       return errResponse("No file provided", 400);
@@ -188,6 +188,12 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error("Transcription failed:", error);
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return errResponse(
+        `Transcription timed out after ${Math.round(GROQ_TIMEOUT_MS / 1000)}s. The file may be too large — try a shorter clip or an audio-only MP3/WAV.`,
+        504
+      );
+    }
     return errResponse(`Transcription failed: ${error}`, 500);
   }
 }
