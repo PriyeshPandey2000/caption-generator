@@ -35,6 +35,18 @@ body::before {
   box-sizing: border-box;
 }
 
+button:not(:disabled),
+[role="button"]:not(:disabled),
+select:not(:disabled),
+label[for],
+summary {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
 /* Custom range slider — replaces native OS chrome with brand-accent styling */
 input[type="range"] {
   -webkit-appearance: none;

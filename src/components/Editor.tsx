@@ -3,19 +3,41 @@
 import { useState, useCallback, useEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { parseSegmentsToWords, groupWordsIntoCaptions } from "@/core/captions";
-import { loadProjectFromStorage, clearProjectFromStorage } from "@/core/persistence";
+import {
+  loadProjectFromStorage,
+  clearProjectFromStorage,
+  loadVideoFromStorage,
+} from "@/core/persistence";
 import UploadZone from "@/components/UploadZone";
 import VideoPreview from "@/components/VideoPreview";
 import Timeline from "@/components/Timeline";
 import Inspector from "@/components/Inspector";
 import Presets from "@/components/Presets";
 import ExportPanel from "@/components/ExportPanel";
+import Link from "next/link";
 import ApiKeyInput from "@/components/ApiKeyInput";
 import CaptionOverlay from "@/components/CaptionOverlay";
 import { useDemoPlayback } from "@/hooks/useDemoPlayback";
 import { TranscriptionResult } from "@/core/types";
 
 type Panel = "inspector" | "presets" | null;
+
+function getVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      resolve(video.duration);
+      URL.revokeObjectURL(url);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not read video duration"));
+    };
+    video.src = url;
+  });
+}
 
 export default function Editor() {
   const [apiKey, setApiKey] = useState<string>(
@@ -39,6 +61,10 @@ export default function Editor() {
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const restorePersisted = useEditorStore((s) => s.restorePersisted);
   const newProject = useEditorStore((s) => s.newProject);
+  const undo = useEditorStore((s) => s.undo);
+  const redo = useEditorStore((s) => s.redo);
+  const canUndo = useEditorStore((s) => s.canUndo);
+  const canRedo = useEditorStore((s) => s.canRedo);
 
   const isDemoMode = !!transcription && !videoUrl;
   useDemoPlayback(isDemoMode);
@@ -48,6 +74,32 @@ export default function Editor() {
     if (saved && saved.transcription) {
       restorePersisted(saved);
     }
+    // Capture the generation this restore belongs to. If the user starts a New
+    // Project (newProject swaps in a fresh project.id) while the IndexedDB read
+    // below is still pending, the restoring of a stale blob must be ignored.
+    const loadProjectId = useEditorStore.getState().project.id;
+    // Restore the uploaded video from IndexedDB so the preview survives a
+    // page refresh (object URLs do not persist across reloads).
+    let cancelled = false;
+    loadVideoFromStorage().then((video) => {
+      if (cancelled) return;
+      // The read finished but the user already moved to a new project —
+      // never restore a stale blob onto it.
+      if (useEditorStore.getState().project.id !== loadProjectId) return;
+      // A user selection made while this read was pending wins over the
+      // persisted blob.
+      if (useEditorStore.getState().videoFile) return;
+      if (video && video.blob) {
+        const file = new File([video.blob], video.name || "video", {
+          type: video.type || video.blob.type || "video/mp4",
+        });
+        const url = URL.createObjectURL(file);
+        useEditorStore.getState().setRestoredVideo(file, url);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -60,6 +112,19 @@ export default function Editor() {
         el.tagName === "SELECT" ||
         el.isContentEditable;
       if (isTyping) return;
+
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
+        return;
+      }
 
       if (e.code === "Space") {
         if (isDemoMode) {
@@ -77,15 +142,11 @@ export default function Editor() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isDemoMode, isPlaying, setIsPlaying]);
+  }, [isDemoMode, isPlaying, setIsPlaying, undo, redo]);
 
   const handleFileSelect = useCallback(
     async (file: File) => {
       setVideoFile(file);
-      if (!apiKey) {
-        setError("Enter your Groq API key to transcribe");
-        return;
-      }
 
       setIsTranscribing(true);
       setError(null);
@@ -112,15 +173,29 @@ export default function Editor() {
           globalStyle.maxWordsPerGroup
         );
 
+        // Groq's reported duration can drift from the actual video length
+        // (e.g. silent tails, container quirks). Anchor the timeline to the
+        // real duration so captions and scrubbing line up with playback.
+        let duration = data.duration || 0;
+        try {
+          const real = await getVideoDuration(file);
+          // video.duration is Infinity for container-less recordings (e.g.
+          // MediaRecorder WebM); never let that poison the timeline.
+          if (Number.isFinite(real) && real > 0) duration = real;
+        } catch {
+          // fall back to the API-reported duration
+        }
+
         const result: TranscriptionResult = {
           language: data.language || "en",
-          duration: data.duration || 0,
+          duration,
           segments: parsedSegments,
           words,
           captionGroups,
         };
 
         setTranscription(result);
+        setIsTranscribing(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Transcription failed");
         setIsTranscribing(false);
@@ -140,7 +215,7 @@ export default function Editor() {
     <div className="flex flex-col h-screen bg-zinc-950 text-white">
       <header className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-900">
         <div className="flex items-center gap-3">
-          <h1 className="font-display text-lg font-bold tracking-tight">
+          <Link href="/" className="font-display text-lg font-bold tracking-tight">
             Caption
             <span
               className="bg-clip-text text-transparent"
@@ -150,17 +225,36 @@ export default function Editor() {
             >
               Lab
             </span>
-          </h1>
+          </Link>
           {transcription && (
             <span className="text-xs text-zinc-500">
-              {transcription.words.length} words ·{" "}
-              {transcription.captionGroups.length} groups
+              {transcription.words.length} words
             </span>
           )}
         </div>
         <div className="flex items-center gap-3">
-          <ApiKeyInput onKeySet={setApiKey} />
+          {/* Groq key now comes from the server env var (GROQ_API_KEY) —
+              no need to expose a key field to end users. */}
+          {/* <ApiKeyInput onKeySet={setApiKey} /> */}
           <ExportPanel />
+          <div className="flex items-center gap-1">
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              title="Undo last change (⌘Z / Ctrl+Z)"
+              className="px-2.5 py-1.5 text-sm rounded-lg border border-white/15 transition-colors disabled:opacity-35 disabled:pointer-events-none bg-transparent text-white hover:bg-white/10"
+            >
+              ↺ Undo
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              title="Redo (⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y)"
+              className="px-2.5 py-1.5 text-sm rounded-lg border border-white/15 transition-colors disabled:opacity-35 disabled:pointer-events-none bg-transparent text-white hover:bg-white/10"
+            >
+              ↻ Redo
+            </button>
+          </div>
           <button
             onClick={() => {
               clearProjectFromStorage();
@@ -224,6 +318,22 @@ export default function Editor() {
                 <div className="w-full max-w-2xl">
                   <UploadZone onFileSelect={handleFileSelect} onDemo={loadDemo} />
                 </div>
+
+                {isTranscribing && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center rounded-lg z-20"
+                  >
+                    <div className="flex flex-col items-center gap-3">
+                      <div aria-hidden="true" className="w-8 h-8 border-2 border-[#00FF66] border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm text-zinc-200">Transcribing your video…</p>
+                      <p className="text-xs text-zinc-500">
+                        This can take a moment for longer clips
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="relative w-full h-full">
@@ -252,7 +362,7 @@ export default function Editor() {
                           onClick={() => {
                             const input = document.createElement("input");
                             input.type = "file";
-                            input.accept = "video/*";
+                            input.accept = ".mp4,.webm,.ogg,.mov,.avi,.mkv,audio/*,video/*";
                             input.onchange = (e) => {
                               const f = (e.target as HTMLInputElement).files?.[0];
                               if (f) handleFileSelect(f);

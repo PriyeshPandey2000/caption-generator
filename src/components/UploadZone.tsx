@@ -16,7 +16,10 @@ export default function UploadZone({ onFileSelect, onDemo }: UploadZoneProps) {
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file && file.type.startsWith("video/")) {
+      if (
+        file &&
+        (file.type.startsWith("video/") || file.type.startsWith("audio/"))
+      ) {
         onFileSelect(file);
       }
     },
@@ -62,7 +65,7 @@ export default function UploadZone({ onFileSelect, onDemo }: UploadZoneProps) {
         <input
           ref={inputRef}
           type="file"
-          accept="video/*"
+          accept=".mp4,.webm,.ogg,.mov,.avi,.mkv,audio/*,video/*"
           onChange={handleChange}
           className="hidden"
         />

@@ -120,7 +120,15 @@ export default function VideoPreview() {
           onClick={handlePlayPause}
         />
       </div>
-      <CaptionOverlay />
+      <div
+        className="absolute inset-x-0 bottom-0 pointer-events-none"
+        style={{
+          height: "35%",
+          background:
+            "linear-gradient(to top, rgba(0,0,0,0.65), transparent)",
+        }}
+      />
+      <CaptionOverlay onBackgroundClick={handlePlayPause} />
 
       <button
         onClick={handlePlayPause}

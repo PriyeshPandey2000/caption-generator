@@ -16,6 +16,8 @@ interface EditableWordProps {
   inputClassName?: string;
   /** Unique id so multiple editors on screen don't fight over focus. */
   fieldName?: string;
+  /** Rendered as data-word-id so a marquee/rubber-band selection can hit-test this word. */
+  dataWordId?: string;
 }
 
 export default function EditableWord({
@@ -26,6 +28,7 @@ export default function EditableWord({
   className = "",
   inputClassName = "",
   fieldName = "word",
+  dataWordId,
 }: EditableWordProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
@@ -88,8 +91,9 @@ export default function EditableWord({
         setEditing(true);
       }}
       style={style}
-      className={className}
+      className={`cursor-pointer ${className}`}
       title="Double-click to edit this word"
+      data-word-id={dataWordId}
     >
       {text}
     </span>

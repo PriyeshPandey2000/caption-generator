@@ -1,21 +1,36 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useEditorStore } from "@/store/editor-store";
-import { resolveWordStyle } from "@/core/styles";
+import { resolveWordStyle, MIN_CAPTION_Y, MAX_CAPTION_Y } from "@/core/styles";
 import { Word } from "@/core/types";
 import EditableWord from "@/components/EditableWord";
 
-export default function CaptionOverlay() {
+// Below this drag distance (px), a mousedown-then-up is treated as a plain
+// click (clear selection / toggle play), not a marquee — otherwise the
+// tiniest hand tremor would start a rubber-band selection.
+const MARQUEE_THRESHOLD = 4;
+
+export default function CaptionOverlay({
+  onBackgroundClick,
+}: {
+  /** Fired on a plain click (no drag) on empty overlay space — lets the
+   * host (VideoPreview) keep its click-to-play/pause behavior even though
+   * this overlay now captures pointer events for marquee selection. */
+  onBackgroundClick?: () => void;
+}) {
   const transcription = useEditorStore((s) => s.project.transcription);
   const globalStyle = useEditorStore((s) => s.project.globalStyle);
   const currentTime = useEditorStore((s) => s.currentTime);
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
   const selectWord = useEditorStore((s) => s.selectWord);
+  const setSelectedWords = useEditorStore((s) => s.setSelectedWords);
   const selectedGroupId = useEditorStore((s) => s.selectedCaptionGroupId);
   const selectCaptionGroup = useEditorStore((s) => s.selectCaptionGroup);
   const clearSelection = useEditorStore((s) => s.clearSelection);
   const groupLayouts = useEditorStore((s) => s.groupLayouts);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
 
   const activeGroup = useMemo(() => {
     if (!transcription) return null;
@@ -41,25 +56,94 @@ export default function CaptionOverlay() {
   const layout = groupLayouts[activeGroup?.id || ""] || { x: 0, y: 0, scale: 1 };
   const isSelected = selectedGroupId === activeGroup?.id;
 
+  const groupBg = globalStyle.style.backgroundColor;
+  const hasBg = groupBg && groupBg !== "transparent";
+
+  const yPct = Math.min(MAX_CAPTION_Y, Math.max(MIN_CAPTION_Y, globalStyle.transform.y ?? 80));
+  const maxW = globalStyle.style.maxWidth ?? 800;
+
   return (
     <div
-      className="absolute inset-0 pointer-events-none"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) clearSelection();
+      ref={overlayRef}
+      className="absolute inset-0"
+      onMouseDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        const startX = e.clientX;
+        const startY = e.clientY;
+        // Captured once here (an event handler, not render) so the render
+        // path never needs to read the ref itself.
+        const containerRect = overlayRef.current?.getBoundingClientRect();
+        let dragged = false;
+
+        const move = (ev: MouseEvent) => {
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+          if (!dragged && Math.max(Math.abs(dx), Math.abs(dy)) < MARQUEE_THRESHOLD) return;
+          dragged = true;
+          const left = (containerRect?.left ?? 0);
+          const top = (containerRect?.top ?? 0);
+          setMarquee({
+            x1: Math.min(startX, ev.clientX) - left,
+            y1: Math.min(startY, ev.clientY) - top,
+            x2: Math.max(startX, ev.clientX) - left,
+            y2: Math.max(startY, ev.clientY) - top,
+          });
+        };
+
+        const up = (ev: MouseEvent) => {
+          window.removeEventListener("mousemove", move);
+          window.removeEventListener("mouseup", up);
+          if (dragged) {
+            const rect1 = {
+              left: Math.min(startX, ev.clientX),
+              top: Math.min(startY, ev.clientY),
+              right: Math.max(startX, ev.clientX),
+              bottom: Math.max(startY, ev.clientY),
+            };
+            const nodes = overlayRef.current?.querySelectorAll<HTMLElement>("[data-word-id]") ?? [];
+            const hitIds: string[] = [];
+            nodes.forEach((el) => {
+              const r = el.getBoundingClientRect();
+              const intersects =
+                r.left < rect1.right && r.right > rect1.left && r.top < rect1.bottom && r.bottom > rect1.top;
+              if (intersects && el.dataset.wordId) hitIds.push(el.dataset.wordId);
+            });
+            setSelectedWords(hitIds);
+            setMarquee(null);
+          } else {
+            clearSelection();
+            onBackgroundClick?.();
+          }
+        };
+
+        window.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", up);
       }}
     >
+      {marquee && (
+        <div
+          className="absolute border border-blue-400 bg-blue-400/15 pointer-events-none"
+          style={{
+            left: marquee.x1,
+            top: marquee.y1,
+            width: marquee.x2 - marquee.x1,
+            height: marquee.y2 - marquee.y1,
+          }}
+        />
+      )}
       <div
-        className="relative inline-block"
+        className="relative"
         style={{
           position: "absolute",
           left: "50%",
-          top: `${globalStyle.transform.y}%`,
-          transform: `translate(-50%, 0) translate(${layout.x}px, ${layout.y}px) scale(${layout.scale})`,
-          maxWidth: `${globalStyle.style.maxWidth}px`,
+          top: `${yPct}%`,
+          transform: `translate(-50%, -50%) translate(${layout.x}px, ${layout.y}px)`,
+          width: "max-content",
+          maxWidth: `min(${maxW}px, 92%)`,
         }}
       >
         <div
-          className="flex flex-wrap justify-center gap-x-2 gap-y-1 pointer-events-auto cursor-move"
+          className="flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1 pointer-events-auto cursor-move"
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => {
             if (!activeGroup) return;
@@ -82,7 +166,17 @@ export default function CaptionOverlay() {
             window.addEventListener("mousemove", move);
             window.addEventListener("mouseup", up);
           }}
-          style={{ maxWidth: `${globalStyle.style.maxWidth}px` }}
+          style={{
+            transform: `scale(${layout.scale})`,
+            ...(hasBg
+              ? {
+                  backgroundColor: groupBg,
+                  padding: `${globalStyle.style.backgroundPadding ?? 6}px ${(globalStyle.style.backgroundPadding ?? 6) * 2}px`,
+                  borderRadius: `${globalStyle.style.backgroundBorderRadius ?? 8}px`,
+                  boxShadow: "0 4px 24px rgba(0,0,0,0.35)",
+                }
+              : {}),
+          }}
         >
           {activeWords.map((word) => (
             <WordSpan
@@ -123,6 +217,7 @@ function WordSpan({
   const currentTime = useEditorStore((s) => s.currentTime);
 
   const style = resolveWordStyle(word, speakerStyles, globalStyle);
+  const baseFontSize = style.fontSize ?? 48;
 
   const entrance = word.animation?.entrance || globalStyle.motion.entrance;
   const activeAnim = word.animation?.active || globalStyle.motion.active;
@@ -134,26 +229,34 @@ function WordSpan({
 
   const animStyle: React.CSSProperties = {};
 
-  // Entrance: scale 80→100 in 180ms after word appears
+  // Entrance: scale 80→100 in 180ms after word appears. Animate font-size,
+  // not transform: scale — same reasoning as the active-word pop below:
+  // transform distorts -webkit-text-stroke into a jagged/artifacted outline
+  // on scaled glyphs, most visible on letters with diagonals or loops.
   if (entrance && entrance.type === "scale") {
     const elapsed = (currentTime - word.start) * 1000;
     const duration = entrance.duration || 180;
     const progress = Math.min(1, Math.max(0, elapsed / duration));
     const scale =
-      (entrance.scaleFrom || 80) +
-      ((entrance.scaleTo || 100) - (entrance.scaleFrom || 80)) * progress;
-    animStyle.transform = `scale(${scale / 100})`;
+      (entrance.scaleFrom ?? 80) +
+      ((entrance.scaleTo ?? 100) - (entrance.scaleFrom ?? 80)) * progress;
+    animStyle.fontSize = `${(baseFontSize * scale) / 100}px`;
   }
 
-  // Active-word or emphasis: pop while spoken
+  // Active-word or emphasis: pop while spoken. Animate real font-size (not
+  // transform: scale) so the word reflows and pushes its neighbors apart
+  // instead of visually overlapping them — transform is paint-only and
+  // doesn't reserve the extra layout space the enlarged glyph needs. This
+  // also avoids a stroke-rendering artifact where -webkit-text-stroke gets
+  // stretched by the transform and looks jagged on diagonal letters (A/M/N).
   if (emphasis && emphasis.type === "scale" && isSpokenNow) {
-    animStyle.transform = `scale(${(emphasis.scaleTo || 140) / 100})`;
+    animStyle.fontSize = `${(baseFontSize * (emphasis.scaleTo ?? 140)) / 100}px`;
     if (emphasis.color) animStyle.color = emphasis.color;
     if (emphasis.glowRadius) {
       animStyle.textShadow = `0 0 ${emphasis.glowRadius}px ${emphasis.color || "#FFD700"}`;
     }
   } else if (activeAnim && activeAnim.type === "scale" && isSpokenNow) {
-    animStyle.transform = `scale(${(activeAnim.scaleTo || 125) / 100})`;
+    animStyle.fontSize = `${(baseFontSize * (activeAnim.scaleTo ?? 125)) / 100}px`;
     if (activeAnim.color) animStyle.color = activeAnim.color;
     if (activeAnim.glowRadius) {
       animStyle.textShadow = `0 0 ${activeAnim.glowRadius}px ${activeAnim.color || "#FFD700"}`;
@@ -180,8 +283,9 @@ function WordSpan({
       onSelect={onSelect}
       onCommit={(t) => updateWordText(word.id, t)}
       fieldName={`word-${word.id}`}
+      dataWordId={word.id}
       className={`
-        inline-block cursor-pointer select-none transition-transform
+        inline-block cursor-pointer select-none transition-[transform,font-size]
         ${
           isSelected
             ? "ring-2 ring-[#00FF66] ring-offset-2 ring-offset-transparent rounded"

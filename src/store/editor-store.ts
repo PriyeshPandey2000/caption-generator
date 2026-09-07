@@ -16,7 +16,12 @@ import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
 import { createDemoTranscription } from "@/core/demo";
 import { ChoreographyBundle, highlightEmphasisWords } from "@/core/choreography";
-import { saveProjectToStorage } from "@/core/persistence";
+import {
+  saveProjectToStorage,
+  saveVideoToStorage,
+  clearProjectFromStorage,
+  clearVideoFromStorage,
+} from "@/core/persistence";
 import {
   buildCameraTimeline,
   mergeOverlapping,
@@ -42,12 +47,14 @@ interface EditorState {
   videoUrl: string | null;
 
   setVideoFile: (file: File) => void;
+  setRestoredVideo: (file: File, url: string) => void;
   setTranscription: (result: TranscriptionResult) => void;
   setIsTranscribing: (v: boolean) => void;
   setError: (error: string | null) => void;
   setCurrentTime: (t: number) => void;
   setIsPlaying: (v: boolean) => void;
   selectWord: (id: string, multi?: boolean) => void;
+  setSelectedWords: (ids: string[]) => void;
   selectCaptionGroup: (id: string | null) => void;
   clearSelection: () => void;
 
@@ -90,6 +97,10 @@ interface EditorState {
     groupLayouts: Record<string, GroupLayout>;
   }) => void;
   newProject: () => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 const initialState: Project = {
@@ -105,6 +116,102 @@ const initialState: Project = {
   error: null,
 };
 
+// Serialize IndexedDB video writes (save + clear). Both operations touch the
+// same `current` key, so an in-flight save from a previous upload must finish
+// before a New Project clear — otherwise the stale blob can commit *after* the
+// clear and resurrect on the next reload.
+let videoOpQueue: Promise<unknown> = Promise.resolve();
+function enqueueVideoOp<T>(op: () => Promise<T>): Promise<T> {
+  const run = videoOpQueue.then(op, op);
+  videoOpQueue = run.catch(() => {});
+  return run;
+}
+
+// --- Undo/redo history -------------------------------------------
+//
+// The documentable subset is what undo/redo tracks: the transcription (words,
+// timing, styling), global/speaker styles, composition events, and group
+// layouts. Everything else — playhead, play state, selection, the loaded video
+// file/URL, transcription-in-progress and error banners — is UI/temporary and
+// intentionally NOT tracked.
+//
+// Capturing happens in the subscribe listener below (compare by reference: the
+// actions only replace an object when they actually change it), so no action
+// needs an explicit tracking call. A 500ms coalescing window merges one gesture
+// (a slider drag, a marquee, a rapid burst) into a single undo step.
+
+interface DocSnapshot {
+  project: {
+    id: string;
+    name: string;
+    transcription: TranscriptionResult | null;
+    globalStyle: GlobalStyle;
+    composition: Composition;
+    speakerStyles: Record<string, Partial<WordStyle>>;
+    speakerMotions: Record<string, Partial<WordMotion>>;
+  };
+  groupLayouts: Record<string, GroupLayout>;
+}
+
+const HISTORY_LIMIT = 50;
+const COALESCE_MS = 500;
+
+let undoStack: DocSnapshot[] = [];
+let redoStack: DocSnapshot[] = [];
+let pendingBaseline: DocSnapshot | null = null;
+let pendingSince = 0;
+let suppressHistory = false;
+// Monotonic token that increments each time the selected video changes or a
+// new project starts. It scopes the asynchronous IndexedDB save-failure report
+// so a stale `persisted === false` for an old blob can't set an error on
+// newer state.
+let videoSaveGeneration = 0;
+
+function cloneDoc(s: EditorState): DocSnapshot {
+  // The document subset is plain JSON-safe data (no functions/dates), so a
+  // stringify round-trip is a safe deep clone.
+  return JSON.parse(
+    JSON.stringify({
+      project: {
+        id: s.project.id,
+        name: s.project.name,
+        transcription: s.project.transcription,
+        globalStyle: s.project.globalStyle,
+        composition: s.project.composition,
+        speakerStyles: s.project.speakerStyles,
+        speakerMotions: s.project.speakerMotions,
+      },
+      groupLayouts: s.groupLayouts,
+    })
+  );
+}
+
+function docChanged(curr: EditorState, prev: EditorState): boolean {
+  return (
+    curr.project.transcription !== prev.project.transcription ||
+    curr.project.globalStyle !== prev.project.globalStyle ||
+    curr.project.composition !== prev.project.composition ||
+    curr.project.speakerStyles !== prev.project.speakerStyles ||
+    curr.project.speakerMotions !== prev.project.speakerMotions ||
+    curr.groupLayouts !== prev.groupLayouts
+  );
+}
+
+function commitPendingBaseline(): void {
+  if (!pendingBaseline) return;
+  undoStack.push(pendingBaseline);
+  pendingBaseline = null;
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  syncHistoryUI();
+}
+
+function syncHistoryUI(): void {
+  useEditorStore.setState({
+    canUndo: undoStack.length > 0 || pendingBaseline !== null,
+    canRedo: redoStack.length > 0,
+  });
+}
+
 export const useEditorStore = create<EditorState>((set) => ({
   project: initialState,
   currentTime: 0,
@@ -114,9 +221,34 @@ export const useEditorStore = create<EditorState>((set) => ({
   videoFile: null,
   videoUrl: null,
   groupLayouts: {},
+  canUndo: false,
+  canRedo: false,
 
   setVideoFile: (file) => {
+    const gen = ++videoSaveGeneration;
     const url = URL.createObjectURL(file);
+    const prevUrl = useEditorStore.getState().videoUrl;
+    if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+    set({ videoFile: file, videoUrl: url });
+    enqueueVideoOp(() =>
+      saveVideoToStorage({ blob: file, name: file.name, type: file.type })
+    ).then((persisted) => {
+      // Only report a failure if this save's generation is still current; a
+      // replacement or New Project after this save started means the result
+      // belongs to a stale blob.
+      if (!persisted && videoSaveGeneration === gen) {
+        useEditorStore
+          .getState()
+          .setError(
+            "Your video plays but couldn't be saved locally — it may disappear after a refresh. The browser may be blocking storage or out of space."
+          );
+      }
+    });
+  },
+
+  setRestoredVideo: (file, url) => {
+    const prevUrl = useEditorStore.getState().videoUrl;
+    if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
     set({ videoFile: file, videoUrl: url });
   },
 
@@ -126,7 +258,11 @@ export const useEditorStore = create<EditorState>((set) => ({
         ...s.project,
         transcription: result,
         isTranscribing: false,
-        error: null,
+        // Preserve any already-surfaced error (e.g. an earlier video
+        // persistence failure whose async report arrived before the
+        // transcription result). Committing a transcript must not silently
+        // wipe the only warning the user got about video storage.
+        error: s.project.error,
       },
     }));
   },
@@ -150,6 +286,9 @@ export const useEditorStore = create<EditorState>((set) => ({
         : [id],
       selectedCaptionGroupId: null,
     })),
+
+  setSelectedWords: (ids) =>
+    set({ selectedWordIds: ids, selectedCaptionGroupId: null }),
 
   selectCaptionGroup: (id) =>
     set({ selectedCaptionGroupId: id, selectedWordIds: [] }),
@@ -442,7 +581,10 @@ export const useEditorStore = create<EditorState>((set) => ({
         const emphasisIds = trans.words
           .filter((w) => w.animation?.emphasis)
           .map((w) => w.id);
-        const events = buildCameraTimeline(trans.words, emphasisIds, ve);
+        // If no words are explicitly emphasized, drive the camera off every
+        // word so the toggle has a visible effect instead of doing nothing.
+        const ids = emphasisIds.length > 0 ? emphasisIds : trans.words.map((w) => w.id);
+        const events = buildCameraTimeline(trans.words, ids, ve);
         return {
           project: {
             ...s.project,
@@ -779,15 +921,106 @@ export const useEditorStore = create<EditorState>((set) => ({
       return { groupLayouts: next };
     }),
 
-  restorePersisted: (data) =>
+  undo: () => {
+    commitPendingBaseline();
+    const target = undoStack.pop();
+    if (!target) return;
+    redoStack.push(cloneDoc(useEditorStore.getState()));
+    if (redoStack.length > HISTORY_LIMIT) redoStack.shift();
+    suppressHistory = true;
+    set((s) => ({
+      project: {
+        ...s.project,
+        ...target.project,
+        videoUrl: s.project.videoUrl,
+        isTranscribing: false,
+        error: null,
+      },
+      groupLayouts: target.groupLayouts,
+      selectedWordIds: [],
+      selectedCaptionGroupId: null,
+    }));
+    suppressHistory = false;
+    pendingBaseline = null;
+    pendingSince = 0;
+    syncHistoryUI();
+  },
+
+  redo: () => {
+    commitPendingBaseline();
+    const target = redoStack.pop();
+    if (!target) return;
+    undoStack.push(cloneDoc(useEditorStore.getState()));
+    if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    suppressHistory = true;
+    set((s) => ({
+      project: {
+        ...s.project,
+        ...target.project,
+        videoUrl: s.project.videoUrl,
+        isTranscribing: false,
+        error: null,
+      },
+      groupLayouts: target.groupLayouts,
+      selectedWordIds: [],
+      selectedCaptionGroupId: null,
+    }));
+    suppressHistory = false;
+    pendingBaseline = null;
+    pendingSince = 0;
+    syncHistoryUI();
+  },
+
+  restorePersisted: (data) => {
+    suppressHistory = true;
     set((s) => ({
       project: {
         ...s.project,
         transcription: data.transcription,
-        // Merge onto defaults so a project saved before a GlobalStyle field
-        // existed (e.g. videoEffects, added for the camera layer) restores
-        // with a sane value instead of undefined and crashing downstream.
-        globalStyle: { ...defaultGlobalStyle, ...data.globalStyle },
+        // Deep-merge onto defaults so a project saved before a field existed
+        // (e.g. backgroundColor, videoEffects) restores with the current
+        // default instead of undefined — while keeping the user's saved
+        // overrides on top.
+        globalStyle: {
+          ...defaultGlobalStyle,
+          ...data.globalStyle,
+          style: {
+            ...defaultGlobalStyle.style,
+            ...data.globalStyle.style,
+          },
+          motion: {
+            ...defaultGlobalStyle.motion,
+            ...data.globalStyle.motion,
+            entrance: {
+              ...defaultGlobalStyle.motion.entrance,
+              ...data.globalStyle.motion?.entrance,
+            },
+            active: {
+              ...defaultGlobalStyle.motion.active,
+              ...data.globalStyle.motion?.active,
+            },
+            exit: {
+              ...defaultGlobalStyle.motion.exit,
+              ...data.globalStyle.motion?.exit,
+            },
+            emphasis: {
+              ...defaultGlobalStyle.motion.emphasis,
+              ...data.globalStyle.motion?.emphasis,
+            },
+          } as WordMotion,
+          transform: {
+            ...defaultGlobalStyle.transform,
+            ...data.globalStyle.transform,
+          },
+          videoEffects: {
+            ...defaultGlobalStyle.videoEffects,
+            ...data.globalStyle.videoEffects,
+          },
+          sfx: {
+            ...defaultGlobalStyle.sfx,
+            ...data.globalStyle.sfx,
+          },
+        },
         composition: {
           sfxEvents: data.composition?.sfxEvents ?? [],
           sfxOverrides: data.composition?.sfxOverrides ?? {},
@@ -802,28 +1035,62 @@ export const useEditorStore = create<EditorState>((set) => ({
       selectedWordIds: [],
       selectedCaptionGroupId: null,
       isPlaying: false,
-    })),
+    }));
+    suppressHistory = false;
+    undoStack = [];
+    redoStack = [];
+    pendingBaseline = null;
+    pendingSince = 0;
+    syncHistoryUI();
+  },
 
-  newProject: () =>
-    set(() => ({
-      project: {
-        id: uuid(),
-        name: "Untitled Project",
-        videoUrl: "",
-        transcription: null,
-        globalStyle: { ...defaultGlobalStyle },
-        composition: { sfxEvents: [], sfxOverrides: {} },
-        speakerStyles: {},
-        speakerMotions: {},
-        isTranscribing: false,
-        error: null,
-      },
-      groupLayouts: {},
-      currentTime: 0,
-      selectedWordIds: [],
-      selectedCaptionGroupId: null,
-      isPlaying: false,
-    })),
+  newProject: () => {
+    suppressHistory = true;
+    ++videoSaveGeneration;
+    set(() => {
+      if (typeof window !== "undefined") {
+        clearProjectFromStorage();
+        enqueueVideoOp(clearVideoFromStorage).then((cleared) => {
+          if (!cleared) {
+            useEditorStore
+              .getState()
+              .setError(
+                "Couldn't fully clear your previous video from local storage. If it reappears after a refresh, it's a browser-storage limitation."
+              );
+          }
+        });
+      }
+      const prevUrl = useEditorStore.getState().videoUrl;
+      if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+      return {
+        project: {
+          id: uuid(),
+          name: "Untitled Project",
+          videoUrl: "",
+          transcription: null,
+          globalStyle: { ...defaultGlobalStyle },
+          composition: { sfxEvents: [], sfxOverrides: {} },
+          speakerStyles: {},
+          speakerMotions: {},
+          isTranscribing: false,
+          error: null,
+        },
+        groupLayouts: {},
+        currentTime: 0,
+        selectedWordIds: [],
+        selectedCaptionGroupId: null,
+        videoFile: null,
+        videoUrl: null,
+        isPlaying: false,
+      };
+    });
+    suppressHistory = false;
+    undoStack = [];
+    redoStack = [];
+    pendingBaseline = null;
+    pendingSince = 0;
+    syncHistoryUI();
+  },
 }));
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -847,5 +1114,29 @@ if (typeof window !== "undefined") {
         groupLayouts: s.groupLayouts,
       });
     }, 300);
+  });
+
+  // Undo/redo capture: record the document state *before* every documentable
+  // change, coalescing rapid successive changes (a slider drag, a marquee
+  // selection edit, SFX regen) into one undo step via a 500ms gesture window.
+  useEditorStore.subscribe((state, prev) => {
+    if (suppressHistory) return;
+    if (!docChanged(state, prev)) return;
+    const now = Date.now();
+    if (!pendingBaseline || now - pendingSince > COALESCE_MS) {
+      // Start (or restart after the window lapsed) a new coalescing window:
+      // the current document becomes the baseline and the window deadline is
+      // set to now. Any intervening state is rolled back on undo.
+      commitPendingBaseline();
+      pendingBaseline = cloneDoc(prev);
+      pendingSince = now;
+      redoStack = [];
+      syncHistoryUI();
+    } else {
+      // Continuation of the same gesture — slide the deadline forward so a
+      // drag/gesture longer than COALESCE_MS stays one undo step instead of
+      // committing an intermediate baseline and splitting the undo.
+      pendingSince = now;
+    }
   });
 }

@@ -1,20 +1,36 @@
 import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle, VideoEffects, SfxSettings } from "./types";
 
+// Vertical caption position bounds (percent of video height). Shared so the
+// inspector slider and the render clamp can never drift apart.
+export const MIN_CAPTION_Y = 5;
+export const MAX_CAPTION_Y = 82;
+
+// Default caption look — modeled on Alex Hormozi's short-form style: bold
+// Anton, all-caps, thick black stroke (no background box), tight
+// near-zero letter-spacing, sitting in the lower third. Emphasis is done by
+// color (yellow) alone, not size — his captions keep every word the same
+// size within a block; ballooning the active word is the MrBeast look, not his.
+// Font is Anton, not Montserrat — Montserrat has a documented rendering bug
+// with -webkit-text-stroke (google/fonts#4212) where thick strokes choke
+// small letter counters (P/O/G/S) into solid blobs.
 export const defaultWordStyle: WordStyle = {
-  fontFamily: "Inter, system-ui, sans-serif",
-  fontSize: 48,
+  fontFamily: "var(--font-anton), Impact, 'Arial Black', sans-serif",
+  fontSize: 52,
   color: "#FFFFFF",
   strokeColor: "#000000",
-  strokeWidth: 2,
+  strokeWidth: 1,
   shadowColor: "rgba(0,0,0,0.5)",
   shadowBlur: 4,
-  shadowOffsetX: 2,
-  shadowOffsetY: 2,
+  shadowOffsetX: 0,
+  shadowOffsetY: 1,
   textTransform: "uppercase",
-  fontWeight: 800,
-  letterSpacing: 2,
+  fontWeight: 900,
+  letterSpacing: 0,
   textAlign: "center",
   maxWidth: 800,
+  backgroundColor: "transparent",
+  backgroundPadding: 6,
+  backgroundBorderRadius: 8,
 };
 
 export const defaultMotion: WordMotion = {
@@ -28,7 +44,7 @@ export const defaultMotion: WordMotion = {
   active: {
     type: "scale",
     scaleFrom: 100,
-    scaleTo: 125,
+    scaleTo: 100,
     duration: 100,
     color: "#FFD700",
   },
@@ -43,7 +59,7 @@ export const defaultMotion: WordMotion = {
 
 export const defaultTransform: WordTransform = {
   x: 0,
-  y: 40,
+  y: 80,
   scale: 1,
 };
 

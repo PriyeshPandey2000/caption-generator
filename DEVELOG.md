@@ -204,6 +204,93 @@ Add a fourth reaction to the emphasis moment — **sound**. Speech → typograph
 
 ---
 
+## 2026-09-07 — Video persistence + review hardening
+
+### Session goal
+Make the editor's video survive page reloads (IndexedDB), and close four review findings (three real bugs + one silent-failure violation).
+
+### What was built
+- **Video persistence (IndexedDB)** — `src/core/persistence.ts` gained `saveVideoToStorage` / `loadVideoFromStorage` / `clearVideoFromStorage` (DB `captionlab-video`, store `files`, key `current`) storing the raw blob + name + type. `setVideoFile` now persists the upload; `Editor` restores it on mount (reconstructs `File` + object URL via new `setRestoredVideo`); `newProject` clears the stored video too. Previously the video was `URL.createObjectURL`-only and died on refresh (captions on black). **Verified end-to-end:** upload 5.7MB `.mov` → IDB hit; reload → video element back (121.9s, plays 0→1.49s); New Project → IDB cleared.
+- **Review finding #1 — server ffmpeg fallback (KEEP, made prod-aware).** `transcribe/route.ts`'s `tryWithFfmpeg` shells out to a system binary; on a host without ffmpeg it silently swallowed the `execFile` error and returned Groq's raw rejection. Added a cached `isFfmpegAvailable()` probe; the route now only runs the ffmpeg path when the binary is present, and otherwise returns a **clean, actionable error** (name supported formats; say the server lacks ffmpeg) instead of a raw API string. **Verified locally:** `.mov` → ffmpeg normalize → Groq → 200 / 479 words in 1.27s (Homebrew ffmpeg present).
+- **Review finding #2 — position slider dead zone.** `Inspector`'s vertical slider ran 5–90% while `CaptionOverlay` clamped rendering at 82%. Extracted `MIN_CAPTION_Y`/`MAX_CAPTION_Y` to `src/core/styles.ts`; both the slider and the render clamp read the same bounds — no more 82–90 dead zone.
+- **Review finding #3 — blob URL leaks.** `setVideoFile` / `setRestoredVideo` now `revokeObjectURL` the previous blob URL before creating a new one (repeated clip swaps no longer leak memory for the tab's lifetime).
+- **Review finding #4 — silent persistence failure.** `saveVideoToStorage` returns a boolean (no longer swallows every error); on failure `setVideoFile` surfaces a visible warning via the store's error banner (already rendered by `Editor` at `project.error`), so an un-persisted video is never a silent surprise.
+
+### CodeRabbit follow-up (PR #2) — all findings verified, real issues fixed
+CodeRabbit posted 10 comments (7 fixes + 3 nitpicks). All were verified against the code; 9 real issues fixed, 1 perf nitpick deliberately skipped (streaming temp-file write — marginal, fallback-only path).
+1. **Groq fetch timeout** — both `fetch` calls now use `AbortSignal.timeout(120_000)`; a `TimeoutError` returns a clear 504 message instead of a generic 500.
+2. **ffmpeg child-process timeout** — `execFile` now gets `{ timeout: 5min, killSignal: "SIGKILL" }` so a pathological upload can't hang the route forever.
+3. **Temp-file leak + path traversal** — extension is attacker-controlled; now validated (`/^[a-z0-9]{1,6}$/`, fallback `bin`) and the exact written path is tracked and unlinked (was: fixed 12-extension list that missed `flac`/`mpeg`/`mpga`/`opus` and could write an arbitrary path via `../`).
+4. **`scaleTo: 0` honored** — Inspector's Scale sliders allow 0; `CaptionOverlay` used `||` (0→140). Switched to `??` so explicit zero scales actually shrink.
+5. **Non-finite duration** — `getVideoDuration` can return `Infinity` (MediaRecorder WebM); now only accepted when `Number.isFinite(real) && real > 0`.
+6. **Filmstrip canvas distortion** — sizing ran off `!canvas.width`, but a fresh canvas is 300×150 so it never ran; now sizes on first frame capture, so vertical videos render at correct aspect ratio.
+7. **Drag-drop audio reject** — picker accepts `audio/*` but drop guard only took `video/`; drop now accepts both.
+8. **Video op serialization** — `setVideoFile`/`newProject` writes to `current` are queued (`enqueueVideoOp`) so a slow save can't commit after a New Project clear and resurrect a stale blob on reload.
+9. **New Project cleanup** — now revokes the blob URL and surfaces a warning if IndexedDB clear fails (`clearVideoFromStorage` returns a boolean).
+
+**Also from nitpicks:** transcription overlay gets `role="status"`+`aria-live`/speaker `aria-hidden`; async IndexedDB video restore is guarded so a pending read can't clobber a video the user selected meanwhile.
+**Skipped:** streaming the upload straight to disk (perf-only nitpick on an already-fallback path).
+**Verified:** build + lint clean; `.mov` → ffmpeg fallback → Groq → 200 / 479 words still works.
+
+### Known issue / in progress
+- **Server-side ffmpeg is not yet deployed** — the normalization fallback requires a system ffmpeg on the host. It degrades cleanly today (clear error message), but Vercel serverless (or any host) must have ffmpeg installed for unsupported formats to actually transcribe. See PRD Phase 3 / deployment note below.
+
+### Remaining (next sessions)
+- Install/verify ffmpeg on the production host when it exists (see PRD note), and re-run the `.mov` fallback check there.
+- Finish/verify remaining pre-existing items (camera zoom with real video, demo playback timing post-guard, mobile layout audit).
+
+---
+
+## 2026-09-07 — Undo/redo
+
+### Session goal
+Add document-history undo/redo (view state excluded, coalesced gestures) wired to UI buttons and keyboard shortcuts.
+
+### What was built
+- **History model** — a store-level undo/redo pair that tracks only the *document subset*: `transcription`, `globalStyle`, `composition`, `speakerStyles`, `speakerMotions`, `groupLayouts`. **Excluded by design** (reference-identity check): playhead, play state, selection, video file/URL, transcription-in-progress, error banner. So scrubbing, playing, marquee-selecting, or the "transcribing…" status never create history entries.
+- **Capture-before-change via subscribe** — a `subscribe` listener snapshots the pre-change doc (`cloneDoc`) whenever any tracked field's reference changes. Because actions already create fresh objects only when they mutate, the listener needs zero per-action tracking calls.
+- **Gesture coalescing** — a 500ms window merges one gesture (slider drag, marquee bulk edit, rapid burst) into a single undo step: keep the *earliest* pre-gesture snapshot, discard later micro-changes.
+- **Undo/redo actions** — `undo()`/`redo()` flush any in-flight gesture, swap snapshots between `undoStack`/`redoStack` (cap 50 each), restore the doc subset while **preserving** `videoUrl`/`isTranscribing`/`error`, and clear the selection (word ids may be stale after undo). The apply is wrapped with `suppressHistory` so restoring a snapshot can't re-capture itself.
+- **Boundaries** — `newProject`/`restorePersisted` suppress capture and reset both stacks (project swap is not undoable).
+- **UI** — ↺ Undo / ↻ Redo buttons in the header next to New Project, disabled via reactive `canUndo`/`canRedo` store fields; keyboard: `⌘/Ctrl+Z` undo, `⌘⇧/Ctrl+Shift+Z` and `Ctrl+Y` redo, guarded by the existing `isTyping` check so text fields keep native now-edit undo.
+- **Verified in browser:** change → canUndo on; Undo reverts + canRedo on; Redo reapplies; two rapid color changes coalesce into ONE undo step; two gestures >500ms apart undo as two steps; New Project resets history; `⌘Z`/`⌘⇧Z` trigger undo/redo; Cmd+Z while an INPUT is focused skips app undo; selection clicks create no history.
+
+### Decisions
+- **Capture via subscribe, not per-action calls** — zero risk of forgetting to mark a future mutation, and the reference check is free.
+- **Coalesce by earliest baseline** — the whole gesture collapses to one step even if it writes a dozen intermediate states.
+
+---
+
+## 2026-09-07 — Hormozi default style, real timeline bugs, marquee select
+
+### Session goal
+Fix the default caption look (user-reported as "pathetic"), match it against real Alex Hormozi reference screenshots, and fix a string of real interaction bugs found by hands-on testing of the timeline and Inspector.
+
+### Default style: Hormozi, not generic bold-white
+- **Font: Montserrat → Anton.** Montserrat Black has a documented rendering bug with `-webkit-text-stroke` (`google/fonts#4212`) — thick strokes choke small letter counters (P/O/G/S) into solid black blobs. Confirmed against a user screenshot showing exactly this artifact. Anton (self-hosted via `next/font/google`) is bold/condensed by design for this exact caption use case and doesn't hit the bug.
+- **Emphasis is color-only, not size-pop.** Reference screenshots show every word in a Hormozi caption at the *same* size — only the spoken word's color shifts to yellow. The previous 125% (then 108%, then 105%) active-word scale was research-then-eyeball-guessed; real behavior is `scaleTo: 100` (no size change at all). The old size-pop was also the direct cause of a second reported bug: an inflated line height on the active word created a large, ugly gap between wrapped caption lines — fixed as a side effect of going to uniform size.
+- **Entrance animation had the same stroke-distortion bug as the (already-fixed) active-word pop** — it was still using `transform: scale()`, which distorts `-webkit-text-stroke` on scaled glyphs. Switched to animating `font-size` directly, matching the fix already applied to the active/emphasis path.
+- **Tightened letter-spacing to 0** (was 2, then 0.5) — sourced: "tight letter spacing is a key characteristic of the style," confirmed visually against the reference.
+- Final defaults: Anton, 52px, 1px stroke, 0 letter-spacing, no background box, lower-third position — synced across `defaultWordStyle`, the "Hormozi" Presets card, and the `hormozi` choreography bundle (also added as a 7th named vibe with aliases `hormozi`/`alex hormozi`/`gymshark`).
+
+### Real bugs found and fixed (all verified live, not just eyeballed)
+- **Inspector's per-word Style/Motion Override panel showed fake values.** It fed sliders `selectedWord.style || {}` — the word's own override only, not its resolved/inherited appearance. A word with no override showed "Stroke Width: 0" even while genuinely rendering at the inherited value, making every slider look disconnected from what was on screen. Fixed by feeding `resolveWordStyle`/`resolveWordMotion` instead.
+- **Timeline word-block clicks never moved the playhead.** Selecting a word far from `currentTime` edited a word that literally wasn't rendered (not part of the active caption group), so every style change looked like it did nothing. Fixed by seeking on selection — then found and fixed a regression in that same fix (seeking to `word.start` instead of the actual click position, which snapped the playhead away from wherever the user clicked since word blocks cover almost the entire timeline width). Final version seeks to the exact click position, which is always within the clicked word's own span.
+- **Video filmstrip thumbnails** — added real per-frame JPEG captures (14 frames) to the timeline background so it shows the actual video instead of a blank bar; fixed a `react-hooks/set-state-in-effect` violation and a ref-read-during-render violation along the way by keying thumbnails to `{url, frames}` state instead of a ref.
+- **Groq key no longer required from end users.** Server route now falls back to `process.env.GROQ_API_KEY`; client no longer blocks upload on a missing key. Key set in `.env.local` (gitignored) and on Vercel (production/preview/development) via `vercel env add` — no deploy triggered. Header API-key input commented out (not deleted).
+- **Removed "159 groups" from the header** — internal caption-grouping jargon with no user-actionable meaning; word count kept.
+
+### Marquee / rubber-band multi-select (Figma/Excalidraw parity)
+- Drag over empty canvas draws a selection box; every word whose on-screen box intersects it gets selected (`data-word-id` added to `EditableWord` for hit-testing, new `setSelectedWords` store action).
+- **Found and fixed a landmine before shipping it**: multi-selecting words and touching any Inspector slider used to silently edit **Global Style** (the whole video's default) instead of the selection, because Inspector only had a single-word branch and fell back to Global for 0 *or 2+* selected words. Added a dedicated bulk-edit branch (`selectedWords.length > 1`) with its own "N words selected" panel.
+- Marquee capture required the overlay to go from `pointer-events-none` to capturing all pointer events, which would have silently broken click-to-play/pause on the video (the overlay sits on top of it). Preserved via a new `onBackgroundClick` prop plumbed from `VideoPreview`'s existing `handlePlayPause`.
+
+### Still open
+- **Floating contextual toolbar** (font/color/stroke/background attached to the selected caption on canvas, Figma-style) — scoped, not built.
+- Timeline zoom and a word search/filter were flagged as real gaps for longer videos (318 words in one test project already made timeline blocks razor-thin) — not started.
+
+---
+
 ## Decisions register
 
 | # | Decision | Rationale | Status |
@@ -225,3 +312,9 @@ Add a fourth reaction to the emphasis moment — **sound**. Speech → typograph
 | 15 | Event-based zoom (emphasis words only), not per-word micro-zoom | Most words should produce zero zoom; zoom should feel like intentional camera reaction | Done |
 | 16 | Per-event `intensity` as multiplier on global `maxScale` | Per-word Camera Punch and global slider are on separate fields, compose correctly | Done |
 | 17 | Three-phase zoom envelope (anticipate → zoom-in → hold → release) | Hold phase keeps zoom at peak while word is spoken; feels like actual editing effect | Done |
+| 18 | Undo/redo tracks only the document subset, captured via store subscribe | Selection/scrub/play/video are view state — undo is for edits only; subscribe + reference-check needs no per-action calls | Done |
+| 19 | 500ms gesture coalescing, earliest-baseline kept | A slider drag/marquee is one undo step, not a dozen | Done |
+| 20 | `newProject`/`restorePersisted` reset history rather than being undoable | Project swap destroys blobs/storage that can't be restored; an undo back to a dead project is worse than no undo | Done |
+| 21 | Default caption font is Anton, not Montserrat | Montserrat has a documented `-webkit-text-stroke` rendering bug (google/fonts#4212) that chokes small letter counters into solid blobs; confirmed against a real screenshot | Done |
+| 22 | Hormozi-style emphasis is color-only (no active-word size pop) | Reference screenshots show uniform word size; size-popping is the MrBeast look, and it was also inflating line-height and breaking multi-line caption spacing | Done |
+| 23 | Multi-select gets its own Inspector bulk-edit branch, not a Global Style fallback | Silently editing the whole video's default style when 2+ words were selected was a real correctness landmine, made more likely once marquee-select shipped | Done |

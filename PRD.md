@@ -43,6 +43,33 @@ One upload → styled, animated, corrected, zoomed, **exported short** in ≤2 m
 
 ---
 
+## 6. Non-negotiable basics (the failure modes competitors keep shipping)
+
+Sourced from real user complaints against CapCut, Submagic, and Opus Clip (Trustpilot/G2/Reddit/forums, 2026-09-04 research pass). These are **quality-bar invariants**, not features — every Phase 1/2 item must satisfy them before it counts as "done." Judges will notice a broken basic faster than a missing advanced feature.
+
+| # | Competitor failure (source) | Our invariant | Acceptance criterion |
+|---|---|---|---|
+| B1 | CapCut: "always gotta edit the captions... half the time you have to add in so much copy yourself" | Correction must be zero-friction | Any word editable in **≤2 clicks** (double-click in place, no modal, no mode switch) from both `CaptionOverlay` and `Timeline` transcript row |
+| B2 | Submagic / Opus Clip: reported audio/video **sync bugs**, "out of sync during editing" | Caption-to-audio drift is **zero-tolerance** | At any `currentTime`, the rendered active word satisfies `word.start <= currentTime < word.end` — no off-by-frame drift after seek, pause, scrub, or playback-rate change |
+| B3 | Opus Clip: "spend as much time fixing as editing manually" — the auto pass isn't actually done | One-click choreography must leave the video **demo-ready**, not draft-ready | After `applyChoreography(bundle)`: style + emphasis + camera events + SFX events are all populated in one atomic call — verified by inspecting `composition.sfxEvents.length > 0` and `videoEffects.cameraEvents.length > 0` when the bundle enables them, no second manual step required |
+| B4 | Submagic: watermark-locked free trial, framed by users as a bait-and-switch | No dark patterns | Export is never gated behind a paywall/watermark in the competition build — stated explicitly as a product principle, not just an omission |
+| B5 | Submagic: "unstable," "constant bugs across platforms that aren't fixed" | Session must survive the full demo loop without a crash | Upload → transcribe → style → choreograph → scrub → export completes with zero uncaught exceptions, zero blank/white-screen states, across a 10+ minute continuous session |
+| B6 | Opus Clip: confusing time+credit stacked billing (trust erosion) | Judge-facing state must always be legible | No silent failures — every async action (`isTranscribing`, `isExporting`) has a visible loading/error state; no operation fails silently into a stuck UI |
+
+### How we ensure these actually hold (verification protocol)
+
+No test framework is installed yet (`package.json` has none) — the core engine modules (`src/core/zoom.ts`, `sfx.ts`, `choreography.ts`, `captions.ts`, `styles.ts`) are already plain-TS and framework-agnostic, so they're cheap to unit-test in isolation. Proposed layers, cheapest-first:
+
+1. **Static gates (already enforced, keep it that way):** `tsc --noEmit` and `eslint` clean before every commit — this session caught a real synchronous-`setState`-in-effect bug this way, not by eyeballing.
+2. **Unit tests for the invariants that are pure functions** (add Vitest — near-zero setup, no DOM needed):
+   - B2: a `sampleActiveWord(words, t)` test sweeping `t` across every word boundary in a fixture transcript, asserting no gap/overlap.
+   - B3: `applyChoreography` on a fixture transcript for every bundle in `CHOREOGRAPHY_KEYS`, asserting `sfxEvents`/`cameraEvents` are non-empty whenever the bundle enables them.
+3. **Live-browser verification for anything DOM/timing-dependent** (the method used throughout this session): drive the real dev server, read `getBoundingClientRect()`/computed styles/store state via `preview_evaluate`, not screenshots alone — screenshots and raw `.style` string reads have both produced false negatives here before; numeric DOM assertions didn't.
+4. **A fixed pre-demo checklist run against the actual judge flow** (§3's 2-minute test), executed end-to-end at least once right before submission — upload a real (non-demo) clip, not just the seeded demo transcript, since demo data is hand-tuned and hides timing-edge-case bugs real Groq output won't.
+5. **Crash-budget rule (B5):** any uncaught exception found during manual or agent-driven testing is a **blocker**, not a backlog item — competitors' worst reviews are all stability complaints, not missing-feature complaints.
+
+---
+
 # PHASE 1 — CORE (the demo lives/dies here; ship polished, not broad)
 
 ### 1.1 Upload → instant styled result
@@ -63,13 +90,24 @@ One upload → styled, animated, corrected, zoomed, **exported short** in ≤2 m
 ### 1.3 Direct manipulation on preview
 
 - **Click → drag** to reposition (respect safe areas).
+- **Platform Safe-Zones with magnetic snapping** (headline differentiator):
+  - Toggleable on-canvas overlays for **Instagram Reels / TikTok / YouTube Shorts** showing dashed inset rectangles where each platform's UI chrome sits over the video.
+  - Caption drag **snaps to the inside edges** of the active safe zone, so text can never hide behind like/comment/share rails, carousels, profile headers, or Shorts' title block.
+  - Safe zones are **percentage-based insets** (not pixel copies of a specific app build — platform UI shifts between releases and devices), with editable per-platform insets.
+  - Defaults for 9:16:
+    - **Reels:** ~right 18–20%, bottom 18–22%, top 10–12%, left clear.
+    - **TikTok:** ~right 25%, bottom 22%, top 8–10%.
+    - **YouTube Shorts:** ~bottom 28%, left/right ~18%.
+  - Same mechanism as broadcast "title-safe" (keep text inside 90% of frame), but per-platform and magnetic.
 - **Corners/edges → scale** ("make it big type").
+- **Rubber-band / marquee multi-select ✅ Implemented** — drag over empty canvas draws a selection box (Figma/Excalidraw-style); every word whose on-screen box intersects it gets selected. Inspector shows a dedicated bulk "N words selected" panel (Style + Motion Override apply to all selected words at once) instead of silently falling back to Global Style — closes a real correctness gap where editing a multi-selection used to edit the whole video's default style instead.
+- **Floating contextual toolbar — not yet built.** A property toolbar (font, color, stroke, background) that follows the selected caption directly on canvas, so styling doesn't require looking away to the sidebar Inspector. Proposed as the next Figma/Excalidraw-parity step; scoped but not started.
 - **Timeline:** click to seek; **drag edges to retime**; click transcript word → playhead moves there.
 - Live preview, real-time (no render-to-see).
 
 ### 1.4 Animation recipes, Style vs Motion split
 
-- **Style:** font, size, color, stroke, shadow, background, case, position, max-width/wrap, safe-area.
+- **Style:** font, size, color, stroke, shadow, background, case, position, max-width/wrap, platform safe-zone (Reels/TikTok/Shorts).
 - **Motion:** entrance, active-word, exit, emphasis, transitions, timing, easing.
 - **Recipes** = one-click presets, fully parameter-editable:
   - entrance `scale 80→110→100 / 180ms / easeOutBack`
@@ -191,6 +229,7 @@ MOST
 # PHASE 3 — SCALE-UP (only if time allows; nothing blocks the win)
 
 - **Server-side FFmpeg** burn-in (Fly/Railway) — 4K/long, web-scale.
+  - **Deployment note (deferred until a real server exists):** the `/api/transcribe` route's audio-normalization fallback (`tryWithFfmpeg`) shells out to a **system `ffmpeg` binary on the host**. It is NOT present in Vercel serverless by default, so deploying requires installing ffmpeg in the build/runtime step (e.g. an install script, Docker image, or Fly/Railway buildpack). Today the route detects its absence (`isFfmpegAvailable`) and returns a clean, actionable error instead of silently swallowing it — transcribing works with a direct Groq-supported upload (mp4/webm/mp3/…) even without ffmpeg; unsupported containers (mov/avi/mkv…) need it. Tracked in DEVELOG § 2026-09-07.
 - **Tauri desktop wrap** — native speed + HW accel + offline + file access (post-competition).
 - **Contextual B-roll injection** — high-value nouns → 1.5s overlays (stock API + licensing; **riskiest**, opt-in).
 - **True ripple / dead-air edit** of source (risky for lip-sync; **text-only filler strip** is safe default).
