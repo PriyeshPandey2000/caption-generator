@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { GlobalStyle, WordStyle, SfxDensity, SfxVolume, SfxPackId } from "@/core/types";
 import { resolveChoreography } from "@/core/choreography";
@@ -139,66 +138,30 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
   },
 ];
 
+// Names that also exist as a full choreography bundle (style + motion +
+// camera zoom + auto-SFX + emphasis words) — clicking these applies the
+// richer bundle instead of just style+motion, so there's one list, not two.
+const CHOREOGRAPHED_PRESETS = new Set(["Hormozi", "MrBeast", "Clean", "Neon"]);
+
 export default function Presets() {
   const applyPreset = useEditorStore((s) => s.applyPreset);
   const applyChoreography = useEditorStore((s) => s.applyChoreography);
-  const [prompt, setPrompt] = useState("");
-
-  const handleApply = () => {
-    if (!prompt.trim()) return;
-    const bundle = resolveChoreography(prompt);
-    applyChoreography(bundle);
-  };
 
   return (
-    <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto">
-      <h3 className="text-sm font-semibold text-white mb-3">AI Choreography</h3>
-      <p className="text-xs text-zinc-500 mb-2">
-        Describe the vibe — the AI picks styles, motion &amp; emphasis words.
-      </p>
-      <div className="flex gap-2 mb-2">
-        <input
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleApply()}
-          placeholder='e.g. "MrBeast high-energy"'
-          className="flex-1 px-2.5 py-1.5 text-xs bg-zinc-800 text-white rounded-lg border border-zinc-700 focus:border-blue-500 focus:outline-none"
-        />
-        <button
-          onClick={handleApply}
-          disabled={!prompt.trim()}
-          className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-40 transition-colors"
-        >
-          Apply
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-1 mb-4">
-        {["Hormozi", "MrBeast", "Clean", "Cinematic", "Comedy", "Neon", "Calm"].map(
-          (sug) => (
-            <button
-              key={sug}
-              onClick={() => {
-                setPrompt(sug.toLowerCase());
-                const bundle = resolveChoreography(sug.toLowerCase());
-                applyChoreography(bundle);
-              }}
-              className="text-[10px] px-2 py-0.5 bg-zinc-800 text-zinc-300 rounded-full hover:bg-zinc-700 hover:text-white transition-colors"
-            >
-              {sug}
-            </button>
-          )
-        )}
-      </div>
-
+    <div className="flex-1 overflow-y-auto p-4">
       <h3 className="text-sm font-semibold text-white mb-3">Presets</h3>
       <div className="space-y-2">
         {presets.map((preset) => (
           <button
             key={preset.name}
-            onClick={() => applyPreset(preset.style)}
-            className="w-full text-left px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors group"
+            onClick={() =>
+              CHOREOGRAPHED_PRESETS.has(preset.name)
+                ? applyChoreography(resolveChoreography(preset.name))
+                : applyPreset(preset.style)
+            }
+            className="w-full text-left px-3 py-2.5 bg-zinc-700 hover:bg-zinc-600 rounded-lg transition-colors group"
           >
-            <span className="text-sm text-white group-hover:text-blue-400 transition-colors">
+            <span className="text-sm text-white group-hover:text-[#00FF66] transition-colors">
               {preset.name}
             </span>
             <PresetPreview style={preset.style.style} />
@@ -244,8 +207,8 @@ function WordsPerLineControl() {
             w-9 h-9 rounded-lg text-sm font-medium transition-colors
             ${
               maxWordsPerGroup === n
-                ? "bg-blue-500 text-white"
-                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                ? "bg-[#00FF66] text-black"
+                : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-white"
             }
           `}
         >
@@ -306,7 +269,7 @@ function CameraMovementControl() {
                   ${
                     intensity === n
                       ? "bg-[#00FF66] text-black"
-                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                      : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-white"
                   }
                 `}
               >
@@ -386,7 +349,7 @@ function SfxControl() {
                   className={`flex-1 h-7 rounded text-[10px] font-medium transition-colors capitalize ${
                     sfx.density === d
                       ? "bg-[#00FF66] text-black"
-                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                      : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-white"
                   }`}
                 >
                   {d}
@@ -407,7 +370,7 @@ function SfxControl() {
                   className={`flex-1 h-7 rounded text-[10px] font-medium transition-colors capitalize ${
                     sfx.volume === v
                       ? "bg-[#00FF66] text-black"
-                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                      : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-white"
                   }`}
                 >
                   {v}
@@ -421,7 +384,7 @@ function SfxControl() {
             <select
               value={sfx.pack}
               onChange={(e) => setSfxPack(e.target.value as SfxPackId)}
-              className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-700 capitalize"
+              className="w-full bg-zinc-700 text-white text-xs rounded px-2 py-1.5 border border-zinc-600 capitalize"
             >
               {packs.map((p) => (
                 <option key={p} value={p} className="capitalize">
@@ -437,7 +400,7 @@ function SfxControl() {
             </span>
             <button
               onClick={() => regenerateSfx()}
-              className="px-2.5 py-1 text-[10px] bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 hover:text-white transition-colors"
+              className="px-2.5 py-1 text-[10px] bg-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-600 hover:text-white transition-colors"
             >
               ↻ Regenerate
             </button>
@@ -475,7 +438,7 @@ function PresetPreview({ style }: { style?: Partial<WordStyle> }) {
   };
 
   return (
-    <div className="mt-2 h-8 rounded-md bg-[#111] border border-zinc-700/50 flex items-center justify-center px-2 overflow-hidden">
+    <div className="mt-2 h-8 rounded-md bg-zinc-800 border border-zinc-700/50 flex items-center justify-center px-2 overflow-hidden">
       <span style={previewStyle} className="whitespace-nowrap">
         Big Caption
       </span>

@@ -11,6 +11,7 @@ import {
 import UploadZone from "@/components/UploadZone";
 import VideoPreview from "@/components/VideoPreview";
 import Timeline from "@/components/Timeline";
+import TranscriptPanel from "@/components/TranscriptPanel";
 import Inspector from "@/components/Inspector";
 import Presets from "@/components/Presets";
 import ExportPanel from "@/components/ExportPanel";
@@ -46,6 +47,8 @@ export default function Editor() {
       : ""
   );
   const [activePanel, setActivePanel] = useState<Panel>("inspector");
+  const [showTranscript, setShowTranscript] = useState(true);
+  const [showStylePanel, setShowStylePanel] = useState(true);
 
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const setVideoFile = useEditorStore((s) => s.setVideoFile);
@@ -212,7 +215,7 @@ export default function Editor() {
   );
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950 text-white">
+    <div className="flex flex-col h-screen bg-zinc-900 text-white">
       <header className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-900">
         <div className="flex items-center gap-3">
           <Link href="/" className="font-display text-lg font-bold tracking-tight">
@@ -278,17 +281,17 @@ export default function Editor() {
         <div className="flex-1 flex flex-col">
           <div className="flex-1 p-4 overflow-hidden">
             {!transcription ? (
-              <div
-                className="relative h-full flex flex-col items-center justify-center gap-6 px-4"
-                style={{
-                  background:
-                    "radial-gradient(circle at 50% 28%, rgba(0,255,102,0.10), transparent 55%)",
-                }}
-              >
-                <div className="text-center max-w-xl">
-                  <h2 className="font-display text-3xl font-extrabold tracking-tight text-white">
+              <div className="relative h-full flex flex-col items-center justify-center gap-6 px-4">
+                <div className="text-center max-w-2xl">
+                  <h2 className="font-display text-4xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
                     Turn{" "}
-                    <span className="hero-word mx-1.5" style={{ animationDelay: "0s" }}>
+                    <span
+                      className="bg-clip-text text-transparent"
+                      style={{
+                        backgroundImage:
+                          "linear-gradient(120deg,#00FF66,#22C55E)",
+                      }}
+                    >
                       speech
                     </span>{" "}
                     into{" "}
@@ -297,8 +300,6 @@ export default function Editor() {
                       style={{
                         backgroundImage:
                           "linear-gradient(120deg,#00FF66,#22C55E)",
-                        filter:
-                          "drop-shadow(0 0 18px rgba(0,255,102,0.35))",
                       }}
                     >
                       animated typography
@@ -308,11 +309,13 @@ export default function Editor() {
                     Every aspect customisable — precision | scale | word level.
                     But you never have to customise anything.
                   </p>
-                  <div className="mt-5 grid grid-cols-2 gap-3 text-left">
-                    <FeatureCard icon="upload" label="Upload → styled captions in seconds" />
-                    <FeatureCard icon="drag" label="Drag & scale — “make it big type”" />
-                    <FeatureCard icon="sparkle" label="AI choreography in plain English" />
-                    <FeatureCard icon="export" label="Export MP4 / SRT / VTT — all in-browser" />
+                  <div className="mt-5 w-full max-w-xl">
+                    <div className="grid grid-cols-2 gap-2">
+                      <FeatureCard icon="upload" label="Upload → styled captions in seconds" />
+                      <FeatureCard icon="drag" label="Drag & scale — “make it big type”" />
+                      <FeatureCard icon="sparkle" label="AI choreography in plain English" />
+                      <FeatureCard icon="export" label="Export MP4 / SRT / VTT — all in-browser" />
+                    </div>
                   </div>
                 </div>
                 <div className="w-full max-w-2xl">
@@ -383,7 +386,7 @@ export default function Editor() {
                 {isTranscribing && (
                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
                     <div className="flex flex-col items-center gap-3">
-                      <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      <div className="w-8 h-8 border-2 border-[#00FF66] border-t-transparent rounded-full animate-spin" />
                       <p className="text-sm text-zinc-300">Transcribing...</p>
                     </div>
                   </div>
@@ -395,38 +398,52 @@ export default function Editor() {
           {transcription && <Timeline />}
         </div>
 
-        {transcription && (
-          <>
-            {activePanel === "inspector" && <Inspector />}
-            {activePanel === "presets" && <Presets />}
-          </>
-        )}
-      </div>
+        {transcription &&
+          (showTranscript ? (
+            <TranscriptPanel onClose={() => setShowTranscript(false)} />
+          ) : (
+            <CollapsedSidebarTab label="Transcript" onClick={() => setShowTranscript(true)} />
+          ))}
 
-      {transcription && (
-        <div className="flex border-t border-zinc-800 bg-zinc-900">
-          <button
-            onClick={() => setActivePanel("inspector")}
-            className={`flex-1 py-2 text-xs font-medium transition-colors ${
-              activePanel === "inspector"
-                ? "text-blue-400 border-b-2 border-blue-400"
-                : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            Inspector
-          </button>
-          <button
-            onClick={() => setActivePanel("presets")}
-            className={`flex-1 py-2 text-xs font-medium transition-colors ${
-              activePanel === "presets"
-                ? "text-blue-400 border-b-2 border-blue-400"
-                : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            Presets
-          </button>
-        </div>
-      )}
+        {transcription &&
+          (showStylePanel ? (
+            <div className="w-72 flex flex-col border-l border-zinc-800 bg-zinc-800">
+              <div className="flex items-center border-b border-zinc-700 shrink-0">
+                <button
+                  onClick={() => setActivePanel("inspector")}
+                  className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                    activePanel === "inspector"
+                      ? "text-[#00FF66] border-b-2 border-[#00FF66]"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  Style
+                </button>
+                <button
+                  onClick={() => setActivePanel("presets")}
+                  className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                    activePanel === "presets"
+                      ? "text-[#00FF66] border-b-2 border-[#00FF66]"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  Presets
+                </button>
+                <button
+                  onClick={() => setShowStylePanel(false)}
+                  title="Hide panel"
+                  className="px-2 text-zinc-500 hover:text-white shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
+              {activePanel === "inspector" && <Inspector />}
+              {activePanel === "presets" && <Presets />}
+            </div>
+          ) : (
+            <CollapsedSidebarTab label="Style" onClick={() => setShowStylePanel(true)} />
+          ))}
+      </div>
     </div>
   );
 }
@@ -448,5 +465,23 @@ function FeatureCard({ icon, label }: { icon: string; label: string }) {
       </div>
       <span className="text-xs text-zinc-300 leading-tight">{label}</span>
     </div>
+  );
+}
+
+function CollapsedSidebarTab({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title={`Show ${label} panel`}
+      className="w-7 shrink-0 flex flex-col items-center justify-center gap-2 border-l border-zinc-800 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+    >
+      <span className="text-zinc-400 text-xs">◀</span>
+      <span
+        className="text-[10px] text-zinc-400 font-medium tracking-wide"
+        style={{ writingMode: "vertical-rl" }}
+      >
+        {label}
+      </span>
+    </button>
   );
 }

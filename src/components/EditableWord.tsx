@@ -18,6 +18,13 @@ interface EditableWordProps {
   fieldName?: string;
   /** Rendered as data-word-id so a marquee/rubber-band selection can hit-test this word. */
   dataWordId?: string;
+  /** Whether double-click starts editing. Defaults to true; set false to make
+   * this a click-to-select-only word (e.g. gated behind an edit-mode toggle). */
+  editable?: boolean;
+  /** When true (and editable), a single click starts editing directly instead
+   * of requiring a double-click — for an explicit "edit mode" where every
+   * click is already understood to mean "edit," not "select." */
+  editOnSingleClick?: boolean;
 }
 
 export default function EditableWord({
@@ -29,17 +36,36 @@ export default function EditableWord({
   inputClassName = "",
   fieldName = "word",
   dataWordId,
+  editable = true,
+  editOnSingleClick = false,
 }: EditableWordProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Approximate character offset under the click that opened the input, so
+  // the cursor lands roughly where the user actually clicked instead of
+  // select-all-ing the word (which reads as "did my click even register?").
+  const clickOffsetRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (editing && inputRef.current) {
       inputRef.current.focus();
-      inputRef.current.select();
+      const pos = clickOffsetRef.current ?? draft.length;
+      inputRef.current.setSelectionRange(pos, pos);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
+
+  const startEditingAt = useCallback(
+    (e: ReactMouseEvent) => {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const ratio = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 1;
+      clickOffsetRef.current = Math.round(Math.min(1, Math.max(0, ratio)) * text.length);
+      setDraft(text);
+      setEditing(true);
+    },
+    [text]
+  );
 
   const commit = useCallback(() => {
     setEditing(false);
@@ -84,15 +110,25 @@ export default function EditableWord({
 
   return (
     <span
-      onClick={onSelect}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        setDraft(text);
-        setEditing(true);
-      }}
+      onClick={
+        editable && editOnSingleClick
+          ? (e) => {
+              e.stopPropagation();
+              startEditingAt(e);
+            }
+          : onSelect
+      }
+      onDoubleClick={
+        editable && !editOnSingleClick
+          ? (e) => {
+              e.stopPropagation();
+              startEditingAt(e);
+            }
+          : undefined
+      }
       style={style}
       className={`cursor-pointer ${className}`}
-      title="Double-click to edit this word"
+      title={editable ? (editOnSingleClick ? "Click to edit this word" : "Double-click to edit this word") : undefined}
       data-word-id={dataWordId}
     >
       {text}
