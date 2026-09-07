@@ -74,11 +74,18 @@ export default function Editor() {
     if (saved && saved.transcription) {
       restorePersisted(saved);
     }
+    // Capture the generation this restore belongs to. If the user starts a New
+    // Project (newProject swaps in a fresh project.id) while the IndexedDB read
+    // below is still pending, the restoring of a stale blob must be ignored.
+    const loadProjectId = useEditorStore.getState().project.id;
     // Restore the uploaded video from IndexedDB so the preview survives a
     // page refresh (object URLs do not persist across reloads).
     let cancelled = false;
     loadVideoFromStorage().then((video) => {
       if (cancelled) return;
+      // The read finished but the user already moved to a new project —
+      // never restore a stale blob onto it.
+      if (useEditorStore.getState().project.id !== loadProjectId) return;
       // A user selection made while this read was pending wins over the
       // persisted blob.
       if (useEditorStore.getState().videoFile) return;
@@ -355,7 +362,7 @@ export default function Editor() {
                           onClick={() => {
                             const input = document.createElement("input");
                             input.type = "file";
-                            input.accept = "video/*";
+                            input.accept = ".mp4,.webm,.ogg,.mov,.avi,.mkv,audio/*,video/*";
                             input.onchange = (e) => {
                               const f = (e.target as HTMLInputElement).files?.[0];
                               if (f) handleFileSelect(f);

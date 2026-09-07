@@ -161,6 +161,11 @@ let redoStack: DocSnapshot[] = [];
 let pendingBaseline: DocSnapshot | null = null;
 let pendingSince = 0;
 let suppressHistory = false;
+// Monotonic token that increments each time the selected video changes or a
+// new project starts. It scopes the asynchronous IndexedDB save-failure report
+// so a stale `persisted === false` for an old blob can't set an error on
+// newer state.
+let videoSaveGeneration = 0;
 
 function cloneDoc(s: EditorState): DocSnapshot {
   // The document subset is plain JSON-safe data (no functions/dates), so a
@@ -220,6 +225,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   canRedo: false,
 
   setVideoFile: (file) => {
+    const gen = ++videoSaveGeneration;
     const url = URL.createObjectURL(file);
     const prevUrl = useEditorStore.getState().videoUrl;
     if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
@@ -227,7 +233,10 @@ export const useEditorStore = create<EditorState>((set) => ({
     enqueueVideoOp(() =>
       saveVideoToStorage({ blob: file, name: file.name, type: file.type })
     ).then((persisted) => {
-      if (!persisted) {
+      // Only report a failure if this save's generation is still current; a
+      // replacement or New Project after this save started means the result
+      // belongs to a stale blob.
+      if (!persisted && videoSaveGeneration === gen) {
         useEditorStore
           .getState()
           .setError(
@@ -249,7 +258,11 @@ export const useEditorStore = create<EditorState>((set) => ({
         ...s.project,
         transcription: result,
         isTranscribing: false,
-        error: null,
+        // Preserve any already-surfaced error (e.g. an earlier video
+        // persistence failure whose async report arrived before the
+        // transcription result). Committing a transcript must not silently
+        // wipe the only warning the user got about video storage.
+        error: s.project.error,
       },
     }));
   },
@@ -1033,6 +1046,7 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   newProject: () => {
     suppressHistory = true;
+    ++videoSaveGeneration;
     set(() => {
       if (typeof window !== "undefined") {
         clearProjectFromStorage();
@@ -1110,11 +1124,19 @@ if (typeof window !== "undefined") {
     if (!docChanged(state, prev)) return;
     const now = Date.now();
     if (!pendingBaseline || now - pendingSince > COALESCE_MS) {
+      // Start (or restart after the window lapsed) a new coalescing window:
+      // the current document becomes the baseline and the window deadline is
+      // set to now. Any intervening state is rolled back on undo.
       commitPendingBaseline();
       pendingBaseline = cloneDoc(prev);
       pendingSince = now;
       redoStack = [];
       syncHistoryUI();
+    } else {
+      // Continuation of the same gesture — slide the deadline forward so a
+      // drag/gesture longer than COALESCE_MS stays one undo step instead of
+      // committing an intermediate baseline and splitting the undo.
+      pendingSince = now;
     }
   });
 }

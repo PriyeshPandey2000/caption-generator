@@ -128,6 +128,11 @@ async function tryWithFfmpeg(
       signal: AbortSignal.timeout(GROQ_TIMEOUT_MS),
     });
   } catch (err) {
+    // A Groq timeout is a fallback-upload failure, not an ffmpeg conversion
+    // failure — propagate it so POST can return its 504. Everything else here
+    // (write/convert/read) is a normalization failure, which the route treats
+    // as "the format could not be read" by returning null.
+    if (err instanceof Error && err.name === "TimeoutError") throw err;
     console.error("ffmpeg normalization failed:", err);
     return null;
   } finally {
@@ -167,8 +172,19 @@ export async function POST(request: NextRequest) {
     const ffmpeg = await isFfmpegAvailable();
     if (ffmpeg) {
       const normalized = await tryWithFfmpeg(file, apiKey);
-      if (normalized && normalized.ok) {
-        return NextResponse.json(await normalized.json());
+      // The normalized fetch ran. If it succeeded, return its transcript;
+      // if it came back with a non-OK response, surface that response rather
+      // than the direct-upload rejection it was intended to replace.
+      if (normalized !== null) {
+        if (normalized.ok) {
+          return NextResponse.json(await normalized.json());
+        }
+        const normRaw = await normalized.text().catch(() => "");
+        console.error("Groq API error (normalized upload):", normalized.status, normRaw);
+        return errResponse(
+          `Transcription failed after converting your file (${normalized.status}). Please try a shorter clip or an MP4/WebM/MOV video or MP3/WAV audio. (${normRaw.slice(0, 200)})`,
+          normalized.status
+        );
       }
     }
 
