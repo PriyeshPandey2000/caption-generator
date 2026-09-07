@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useEditorStore } from "@/store/editor-store";
-import { resolveWordStyle } from "@/core/styles";
+import { resolveWordStyle, MIN_CAPTION_Y, MAX_CAPTION_Y } from "@/core/styles";
 import { Word } from "@/core/types";
 import EditableWord from "@/components/EditableWord";
 
@@ -41,6 +41,12 @@ export default function CaptionOverlay() {
   const layout = groupLayouts[activeGroup?.id || ""] || { x: 0, y: 0, scale: 1 };
   const isSelected = selectedGroupId === activeGroup?.id;
 
+  const groupBg = globalStyle.style.backgroundColor;
+  const hasBg = groupBg && groupBg !== "transparent";
+
+  const yPct = Math.min(MAX_CAPTION_Y, Math.max(MIN_CAPTION_Y, globalStyle.transform.y ?? 80));
+  const maxW = globalStyle.style.maxWidth ?? 800;
+
   return (
     <div
       className="absolute inset-0 pointer-events-none"
@@ -49,17 +55,18 @@ export default function CaptionOverlay() {
       }}
     >
       <div
-        className="relative inline-block"
+        className="relative"
         style={{
           position: "absolute",
           left: "50%",
-          top: `${globalStyle.transform.y}%`,
-          transform: `translate(-50%, 0) translate(${layout.x}px, ${layout.y}px) scale(${layout.scale})`,
-          maxWidth: `${globalStyle.style.maxWidth}px`,
+          top: `${yPct}%`,
+          transform: `translate(-50%, -50%) translate(${layout.x}px, ${layout.y}px)`,
+          width: "max-content",
+          maxWidth: `min(${maxW}px, 92%)`,
         }}
       >
         <div
-          className="flex flex-wrap justify-center gap-x-2 gap-y-1 pointer-events-auto cursor-move"
+          className="flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1 pointer-events-auto cursor-move"
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => {
             if (!activeGroup) return;
@@ -82,7 +89,17 @@ export default function CaptionOverlay() {
             window.addEventListener("mousemove", move);
             window.addEventListener("mouseup", up);
           }}
-          style={{ maxWidth: `${globalStyle.style.maxWidth}px` }}
+          style={{
+            transform: `scale(${layout.scale})`,
+            ...(hasBg
+              ? {
+                  backgroundColor: groupBg,
+                  padding: `${globalStyle.style.backgroundPadding ?? 6}px ${(globalStyle.style.backgroundPadding ?? 6) * 2}px`,
+                  borderRadius: `${globalStyle.style.backgroundBorderRadius ?? 8}px`,
+                  boxShadow: "0 4px 24px rgba(0,0,0,0.35)",
+                }
+              : {}),
+          }}
         >
           {activeWords.map((word) => (
             <WordSpan

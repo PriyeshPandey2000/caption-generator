@@ -88,7 +88,7 @@ export default function EditableWord({
         setEditing(true);
       }}
       style={style}
-      className={className}
+      className={`cursor-pointer ${className}`}
       title="Double-click to edit this word"
     >
       {text}

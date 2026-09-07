@@ -1,14 +1,18 @@
 "use client";
 
-import { useRef, useCallback, useMemo } from "react";
+import { useRef, useCallback, useMemo, useState, useEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { formatTime } from "@/core/captions";
 import EditableWord from "@/components/EditableWord";
+
+const FILMSTRIP_FRAMES = 14;
 
 export default function Timeline() {
   const containerRef = useRef<HTMLDivElement>(null);
   const sfxTrackRef = useRef<HTMLDivElement>(null);
   const transcription = useEditorStore((s) => s.project.transcription);
+  const videoUrl = useEditorStore((s) => s.videoUrl);
+  const [filmstrip, setFilmstrip] = useState<{ url: string; frames: string[] } | null>(null);
   const currentTime = useEditorStore((s) => s.currentTime);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
@@ -62,6 +66,50 @@ export default function Timeline() {
   );
 
   const showSfxLane = sfxEnabled && sfxEvents.length > 0;
+  const thumbnails = filmstrip?.url === videoUrl ? filmstrip.frames : [];
+
+  useEffect(() => {
+    if (!videoUrl || !duration) return;
+
+    let cancelled = false;
+    const video = document.createElement("video");
+    video.muted = true;
+    video.preload = "auto";
+    video.src = videoUrl;
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const frames: string[] = [];
+
+    const captureAt = (i: number) => {
+      if (cancelled) return;
+      if (i >= FILMSTRIP_FRAMES) {
+        setFilmstrip({ url: videoUrl, frames });
+        return;
+      }
+      video.currentTime = (duration * (i + 0.5)) / FILMSTRIP_FRAMES;
+    };
+
+    const onSeeked = () => {
+      if (cancelled || !ctx) return;
+      if (!canvas.width) {
+        canvas.height = 64;
+        canvas.width = Math.round((video.videoWidth / video.videoHeight) * 64) || 40;
+      }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      frames.push(canvas.toDataURL("image/jpeg", 0.6));
+      captureAt(frames.length);
+    };
+
+    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("loadedmetadata", () => captureAt(0));
+
+    return () => {
+      cancelled = true;
+      video.removeEventListener("seeked", onSeeked);
+      video.src = "";
+    };
+  }, [videoUrl, duration]);
 
   return (
     <div className="w-full bg-zinc-900 border-t border-zinc-800 px-4 py-3">
@@ -78,8 +126,21 @@ export default function Timeline() {
       <div
         ref={containerRef}
         onClick={handleClick}
-        className="relative h-16 bg-zinc-800 rounded-lg cursor-crosshair overflow-hidden"
+        className={`relative h-16 rounded-lg cursor-crosshair overflow-hidden ${
+          thumbnails.length > 0 ? "bg-black" : "bg-zinc-800"
+        }`}
       >
+        {thumbnails.length > 0 && (
+          <div className="absolute inset-0 flex">
+            {thumbnails.map((src, i) => (
+              <div
+                key={i}
+                className="flex-1 bg-cover bg-center"
+                style={{ backgroundImage: `url(${src})` }}
+              />
+            ))}
+          </div>
+        )}
         {wordPositions.map((w, i) => {
           const prevEnd = i > 0 ? wordPositions[i - 1].end : 0;
           const nextStart = i < wordPositions.length - 1 ? wordPositions[i + 1].start : duration;

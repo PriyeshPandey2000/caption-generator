@@ -16,7 +16,12 @@ import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
 import { createDemoTranscription } from "@/core/demo";
 import { ChoreographyBundle, highlightEmphasisWords } from "@/core/choreography";
-import { saveProjectToStorage } from "@/core/persistence";
+import {
+  saveProjectToStorage,
+  saveVideoToStorage,
+  clearProjectFromStorage,
+  clearVideoFromStorage,
+} from "@/core/persistence";
 import {
   buildCameraTimeline,
   mergeOverlapping,
@@ -42,6 +47,7 @@ interface EditorState {
   videoUrl: string | null;
 
   setVideoFile: (file: File) => void;
+  setRestoredVideo: (file: File, url: string) => void;
   setTranscription: (result: TranscriptionResult) => void;
   setIsTranscribing: (v: boolean) => void;
   setError: (error: string | null) => void;
@@ -117,6 +123,25 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   setVideoFile: (file) => {
     const url = URL.createObjectURL(file);
+    const prevUrl = useEditorStore.getState().videoUrl;
+    if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+    set({ videoFile: file, videoUrl: url });
+    saveVideoToStorage({ blob: file, name: file.name, type: file.type }).then(
+      (persisted) => {
+        if (!persisted) {
+          useEditorStore
+            .getState()
+            .setError(
+              "Your video plays but couldn't be saved locally — it may disappear after a refresh. The browser may be blocking storage or out of space."
+            );
+        }
+      }
+    );
+  },
+
+  setRestoredVideo: (file, url) => {
+    const prevUrl = useEditorStore.getState().videoUrl;
+    if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
     set({ videoFile: file, videoUrl: url });
   },
 
@@ -442,7 +467,10 @@ export const useEditorStore = create<EditorState>((set) => ({
         const emphasisIds = trans.words
           .filter((w) => w.animation?.emphasis)
           .map((w) => w.id);
-        const events = buildCameraTimeline(trans.words, emphasisIds, ve);
+        // If no words are explicitly emphasized, drive the camera off every
+        // word so the toggle has a visible effect instead of doing nothing.
+        const ids = emphasisIds.length > 0 ? emphasisIds : trans.words.map((w) => w.id);
+        const events = buildCameraTimeline(trans.words, ids, ve);
         return {
           project: {
             ...s.project,
@@ -784,10 +812,50 @@ export const useEditorStore = create<EditorState>((set) => ({
       project: {
         ...s.project,
         transcription: data.transcription,
-        // Merge onto defaults so a project saved before a GlobalStyle field
-        // existed (e.g. videoEffects, added for the camera layer) restores
-        // with a sane value instead of undefined and crashing downstream.
-        globalStyle: { ...defaultGlobalStyle, ...data.globalStyle },
+        // Deep-merge onto defaults so a project saved before a field existed
+        // (e.g. backgroundColor, videoEffects) restores with the current
+        // default instead of undefined — while keeping the user's saved
+        // overrides on top.
+        globalStyle: {
+          ...defaultGlobalStyle,
+          ...data.globalStyle,
+          style: {
+            ...defaultGlobalStyle.style,
+            ...data.globalStyle.style,
+          },
+          motion: {
+            ...defaultGlobalStyle.motion,
+            ...data.globalStyle.motion,
+            entrance: {
+              ...defaultGlobalStyle.motion.entrance,
+              ...data.globalStyle.motion?.entrance,
+            },
+            active: {
+              ...defaultGlobalStyle.motion.active,
+              ...data.globalStyle.motion?.active,
+            },
+            exit: {
+              ...defaultGlobalStyle.motion.exit,
+              ...data.globalStyle.motion?.exit,
+            },
+            emphasis: {
+              ...defaultGlobalStyle.motion.emphasis,
+              ...data.globalStyle.motion?.emphasis,
+            },
+          } as WordMotion,
+          transform: {
+            ...defaultGlobalStyle.transform,
+            ...data.globalStyle.transform,
+          },
+          videoEffects: {
+            ...defaultGlobalStyle.videoEffects,
+            ...data.globalStyle.videoEffects,
+          },
+          sfx: {
+            ...defaultGlobalStyle.sfx,
+            ...data.globalStyle.sfx,
+          },
+        },
         composition: {
           sfxEvents: data.composition?.sfxEvents ?? [],
           sfxOverrides: data.composition?.sfxOverrides ?? {},
@@ -805,25 +873,33 @@ export const useEditorStore = create<EditorState>((set) => ({
     })),
 
   newProject: () =>
-    set(() => ({
-      project: {
-        id: uuid(),
-        name: "Untitled Project",
-        videoUrl: "",
-        transcription: null,
-        globalStyle: { ...defaultGlobalStyle },
-        composition: { sfxEvents: [], sfxOverrides: {} },
-        speakerStyles: {},
-        speakerMotions: {},
-        isTranscribing: false,
-        error: null,
-      },
-      groupLayouts: {},
-      currentTime: 0,
-      selectedWordIds: [],
-      selectedCaptionGroupId: null,
-      isPlaying: false,
-    })),
+    set(() => {
+      if (typeof window !== "undefined") {
+        clearProjectFromStorage();
+        clearVideoFromStorage();
+      }
+      return {
+        project: {
+          id: uuid(),
+          name: "Untitled Project",
+          videoUrl: "",
+          transcription: null,
+          globalStyle: { ...defaultGlobalStyle },
+          composition: { sfxEvents: [], sfxOverrides: {} },
+          speakerStyles: {},
+          speakerMotions: {},
+          isTranscribing: false,
+          error: null,
+        },
+        groupLayouts: {},
+        currentTime: 0,
+        selectedWordIds: [],
+        selectedCaptionGroupId: null,
+        videoFile: null,
+        videoUrl: null,
+        isPlaying: false,
+      };
+    }),
 }));
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;

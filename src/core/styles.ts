@@ -1,20 +1,28 @@
 import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle, VideoEffects, SfxSettings } from "./types";
 
+// Vertical caption position bounds (percent of video height). Shared so the
+// inspector slider and the render clamp can never drift apart.
+export const MIN_CAPTION_Y = 5;
+export const MAX_CAPTION_Y = 82;
+
 export const defaultWordStyle: WordStyle = {
   fontFamily: "Inter, system-ui, sans-serif",
   fontSize: 48,
   color: "#FFFFFF",
   strokeColor: "#000000",
-  strokeWidth: 2,
-  shadowColor: "rgba(0,0,0,0.5)",
-  shadowBlur: 4,
-  shadowOffsetX: 2,
+  strokeWidth: 3,
+  shadowColor: "rgba(0,0,0,0.8)",
+  shadowBlur: 8,
+  shadowOffsetX: 0,
   shadowOffsetY: 2,
   textTransform: "uppercase",
   fontWeight: 800,
   letterSpacing: 2,
   textAlign: "center",
   maxWidth: 800,
+  backgroundColor: "rgba(0,0,0,0.55)",
+  backgroundPadding: 6,
+  backgroundBorderRadius: 8,
 };
 
 export const defaultMotion: WordMotion = {
@@ -43,7 +51,7 @@ export const defaultMotion: WordMotion = {
 
 export const defaultTransform: WordTransform = {
   x: 0,
-  y: 40,
+  y: 80,
   scale: 1,
 };
 

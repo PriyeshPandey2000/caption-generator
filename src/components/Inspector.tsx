@@ -2,6 +2,7 @@
 
 import { useEditorStore } from "@/store/editor-store";
 import { WordStyle, WordMotion, AnimationRecipe, SfxName, SfxEvent } from "@/core/types";
+import { MIN_CAPTION_Y, MAX_CAPTION_Y } from "@/core/styles";
 
 export default function Inspector() {
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
@@ -53,6 +54,11 @@ export default function Inspector() {
         <StyleControls
           style={globalStyle.style}
           onChange={(s) => updateGlobalStyle({ style: { ...globalStyle.style, ...s } })}
+        />
+        <h3 className="text-sm font-semibold text-white mt-6 mb-2">Position</h3>
+        <PositionControls
+          y={globalStyle.transform.y}
+          onChange={(y) => updateGlobalStyle({ transform: { ...globalStyle.transform, y } })}
         />
         <h3 className="text-sm font-semibold text-white mt-6 mb-4">
           Global Motion
@@ -233,6 +239,50 @@ function StyleControls({
           <option value="lowercase">lowercase</option>
           <option value="capitalize">Capitalize</option>
         </select>
+      </div>
+    </div>
+  );
+}
+
+function PositionControls({
+  y,
+  onChange,
+}: {
+  y: number;
+  onChange: (y: number) => void;
+}) {
+  const presets = [
+    { label: "Top", y: 18 },
+    { label: "Middle", y: 45 },
+    { label: "Bottom", y: 80 },
+  ];
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-1">
+        {presets.map((p) => (
+          <button
+            key={p.label}
+            onClick={() => onChange(p.y)}
+            className={`flex-1 px-2 py-1.5 text-xs rounded transition-colors ${
+              Math.round(y) === p.y
+                ? "bg-[#00ff66] text-black font-medium"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <input
+        type="range"
+        min={MIN_CAPTION_Y}
+        max={MAX_CAPTION_Y}
+        value={y}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-[#00ff66]"
+      />
+      <div className="text-[11px] text-zinc-500">
+        Vertical position: {y}% (clamped to stay inside the video)
       </div>
     </div>
   );

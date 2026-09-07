@@ -62,7 +62,7 @@ export default function UploadZone({ onFileSelect, onDemo }: UploadZoneProps) {
         <input
           ref={inputRef}
           type="file"
-          accept="video/*"
+          accept=".mp4,.webm,.ogg,.mov,.avi,.mkv,audio/*,video/*"
           onChange={handleChange}
           className="hidden"
         />

@@ -204,6 +204,27 @@ Add a fourth reaction to the emphasis moment — **sound**. Speech → typograph
 
 ---
 
+## 2026-09-07 — Video persistence + review hardening
+
+### Session goal
+Make the editor's video survive page reloads (IndexedDB), and close four review findings (three real bugs + one silent-failure violation).
+
+### What was built
+- **Video persistence (IndexedDB)** — `src/core/persistence.ts` gained `saveVideoToStorage` / `loadVideoFromStorage` / `clearVideoFromStorage` (DB `captionlab-video`, store `files`, key `current`) storing the raw blob + name + type. `setVideoFile` now persists the upload; `Editor` restores it on mount (reconstructs `File` + object URL via new `setRestoredVideo`); `newProject` clears the stored video too. Previously the video was `URL.createObjectURL`-only and died on refresh (captions on black). **Verified end-to-end:** upload 5.7MB `.mov` → IDB hit; reload → video element back (121.9s, plays 0→1.49s); New Project → IDB cleared.
+- **Review finding #1 — server ffmpeg fallback (KEEP, made prod-aware).** `transcribe/route.ts`'s `tryWithFfmpeg` shells out to a system binary; on a host without ffmpeg it silently swallowed the `execFile` error and returned Groq's raw rejection. Added a cached `isFfmpegAvailable()` probe; the route now only runs the ffmpeg path when the binary is present, and otherwise returns a **clean, actionable error** (name supported formats; say the server lacks ffmpeg) instead of a raw API string. **Verified locally:** `.mov` → ffmpeg normalize → Groq → 200 / 479 words in 1.27s (Homebrew ffmpeg present).
+- **Review finding #2 — position slider dead zone.** `Inspector`'s vertical slider ran 5–90% while `CaptionOverlay` clamped rendering at 82%. Extracted `MIN_CAPTION_Y`/`MAX_CAPTION_Y` to `src/core/styles.ts`; both the slider and the render clamp read the same bounds — no more 82–90 dead zone.
+- **Review finding #3 — blob URL leaks.** `setVideoFile` / `setRestoredVideo` now `revokeObjectURL` the previous blob URL before creating a new one (repeated clip swaps no longer leak memory for the tab's lifetime).
+- **Review finding #4 — silent persistence failure.** `saveVideoToStorage` returns a boolean (no longer swallows every error); on failure `setVideoFile` surfaces a visible warning via the store's error banner (already rendered by `Editor` at `project.error`), so an un-persisted video is never a silent surprise.
+
+### Known issue / in progress
+- **Server-side ffmpeg is not yet deployed** — the normalization fallback requires a system ffmpeg on the host. It degrades cleanly today (clear error message), but Vercel serverless (or any host) must have ffmpeg installed for unsupported formats to actually transcribe. See PRD Phase 3 / deployment note below.
+
+### Remaining (next sessions)
+- Install/verify ffmpeg on the production host when it exists (see PRD note), and re-run the `.mov` fallback check there.
+- Finish/verify remaining pre-existing items (camera zoom with real video, demo playback timing post-guard, mobile layout audit).
+
+---
+
 ## Decisions register
 
 | # | Decision | Rationale | Status |

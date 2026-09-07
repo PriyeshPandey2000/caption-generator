@@ -3,19 +3,41 @@
 import { useState, useCallback, useEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { parseSegmentsToWords, groupWordsIntoCaptions } from "@/core/captions";
-import { loadProjectFromStorage, clearProjectFromStorage } from "@/core/persistence";
+import {
+  loadProjectFromStorage,
+  clearProjectFromStorage,
+  loadVideoFromStorage,
+} from "@/core/persistence";
 import UploadZone from "@/components/UploadZone";
 import VideoPreview from "@/components/VideoPreview";
 import Timeline from "@/components/Timeline";
 import Inspector from "@/components/Inspector";
 import Presets from "@/components/Presets";
 import ExportPanel from "@/components/ExportPanel";
+import Link from "next/link";
 import ApiKeyInput from "@/components/ApiKeyInput";
 import CaptionOverlay from "@/components/CaptionOverlay";
 import { useDemoPlayback } from "@/hooks/useDemoPlayback";
 import { TranscriptionResult } from "@/core/types";
 
 type Panel = "inspector" | "presets" | null;
+
+function getVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      resolve(video.duration);
+      URL.revokeObjectURL(url);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not read video duration"));
+    };
+    video.src = url;
+  });
+}
 
 export default function Editor() {
   const [apiKey, setApiKey] = useState<string>(
@@ -48,6 +70,17 @@ export default function Editor() {
     if (saved && saved.transcription) {
       restorePersisted(saved);
     }
+    // Restore the uploaded video from IndexedDB so the preview survives a
+    // page refresh (object URLs do not persist across reloads).
+    loadVideoFromStorage().then((video) => {
+      if (video && video.blob) {
+        const file = new File([video.blob], video.name || "video", {
+          type: video.type || video.blob.type || "video/mp4",
+        });
+        const url = URL.createObjectURL(file);
+        useEditorStore.getState().setRestoredVideo(file, url);
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -112,15 +145,27 @@ export default function Editor() {
           globalStyle.maxWordsPerGroup
         );
 
+        // Groq's reported duration can drift from the actual video length
+        // (e.g. silent tails, container quirks). Anchor the timeline to the
+        // real duration so captions and scrubbing line up with playback.
+        let duration = data.duration || 0;
+        try {
+          const real = await getVideoDuration(file);
+          if (real > 0) duration = real;
+        } catch {
+          // fall back to the API-reported duration
+        }
+
         const result: TranscriptionResult = {
           language: data.language || "en",
-          duration: data.duration || 0,
+          duration,
           segments: parsedSegments,
           words,
           captionGroups,
         };
 
         setTranscription(result);
+        setIsTranscribing(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Transcription failed");
         setIsTranscribing(false);
@@ -140,7 +185,7 @@ export default function Editor() {
     <div className="flex flex-col h-screen bg-zinc-950 text-white">
       <header className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-900">
         <div className="flex items-center gap-3">
-          <h1 className="font-display text-lg font-bold tracking-tight">
+          <Link href="/" className="font-display text-lg font-bold tracking-tight">
             Caption
             <span
               className="bg-clip-text text-transparent"
@@ -150,7 +195,7 @@ export default function Editor() {
             >
               Lab
             </span>
-          </h1>
+          </Link>
           {transcription && (
             <span className="text-xs text-zinc-500">
               {transcription.words.length} words ·{" "}
@@ -224,6 +269,18 @@ export default function Editor() {
                 <div className="w-full max-w-2xl">
                   <UploadZone onFileSelect={handleFileSelect} onDemo={loadDemo} />
                 </div>
+
+                {isTranscribing && (
+                  <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center rounded-lg z-20">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-8 h-8 border-2 border-[#00FF66] border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm text-zinc-200">Transcribing your video…</p>
+                      <p className="text-xs text-zinc-500">
+                        This can take a moment for longer clips
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="relative w-full h-full">
