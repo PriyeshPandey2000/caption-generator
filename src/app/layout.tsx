@@ -33,7 +33,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`h-full dark ${spaceGrotesk.variable} ${anton.variable}`}>
-      <body className="min-h-full flex flex-col bg-zinc-950 text-white">
+      <body className="min-h-full flex flex-col bg-zinc-900 text-white">
         {children}
       </body>
     </html>

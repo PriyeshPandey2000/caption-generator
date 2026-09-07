@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useLayoutEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { resolveWordStyle, MIN_CAPTION_Y, MAX_CAPTION_Y } from "@/core/styles";
-import { Word } from "@/core/types";
+import { Word, WordStyle } from "@/core/types";
 import EditableWord from "@/components/EditableWord";
 
 // Below this drag distance (px), a mousedown-then-up is treated as a plain
@@ -29,8 +29,14 @@ export default function CaptionOverlay({
   const selectCaptionGroup = useEditorStore((s) => s.selectCaptionGroup);
   const clearSelection = useEditorStore((s) => s.clearSelection);
   const groupLayouts = useEditorStore((s) => s.groupLayouts);
+  const speakerStyles = useEditorStore((s) => s.project.speakerStyles);
+  const updateWordStyle = useEditorStore((s) => s.updateWordStyle);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
   const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [frame, setFrame] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const [wordFrame, setWordFrame] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   const activeGroup = useMemo(() => {
     if (!transcription) return null;
@@ -51,10 +57,60 @@ export default function CaptionOverlay({
     return active;
   }, [activeGroup, transcription]);
 
-  if (!transcription || activeWords.length === 0) return null;
-
   const layout = groupLayouts[activeGroup?.id || ""] || { x: 0, y: 0, scale: 1 };
   const isSelected = selectedGroupId === activeGroup?.id;
+  const singleWordId = selectedWordIds.length === 1 ? selectedWordIds[0] : null;
+
+  // The row is visually resized via `transform: scale()` (paint-only — it
+  // never affects layout), so the wrapper's own box stays at the row's
+  // unscaled size. Positioning the resize handles/toolbar from CSS classes
+  // anchored to the wrapper would put them at the pre-scale corners, adrift
+  // from the actual (bigger/smaller) rendered text. Instead measure the
+  // row's real on-screen box and position an exact-sized frame for them.
+  // Re-measures on every currentTime tick too, since active/emphasis word
+  // pops change the row's rendered size continuously during playback.
+  useLayoutEffect(() => {
+    if (!isSelected || !rowRef.current || !wrapperRef.current) {
+      setFrame(null);
+      return;
+    }
+    const rowRect = rowRef.current.getBoundingClientRect();
+    const wrapRect = wrapperRef.current.getBoundingClientRect();
+    setFrame({
+      left: rowRect.left - wrapRect.left,
+      top: rowRect.top - wrapRect.top,
+      width: rowRect.width,
+      height: rowRect.height,
+    });
+  }, [isSelected, layout.scale, currentTime, activeGroup?.id]);
+
+  // A single selected word gets the same border-frame treatment as a
+  // selected group, not a CSS `outline` on the word span itself — outline
+  // and border render dashed patterns differently (different dash spacing
+  // even at identical width), so reusing one mechanism keeps both looking
+  // pixel-identical instead of "why is this one thicker."
+  useLayoutEffect(() => {
+    if (!singleWordId || !rowRef.current || !wrapperRef.current) {
+      setWordFrame(null);
+      return;
+    }
+    const wordEl = rowRef.current.querySelector<HTMLElement>(`[data-word-id="${singleWordId}"]`);
+    if (!wordEl) {
+      setWordFrame(null);
+      return;
+    }
+    const wordRect = wordEl.getBoundingClientRect();
+    const wrapRect = wrapperRef.current.getBoundingClientRect();
+    const buffer = 8; // breathing room so the dashed frame isn't flush against the glyphs
+    setWordFrame({
+      left: wordRect.left - wrapRect.left - buffer,
+      top: wordRect.top - wrapRect.top - buffer,
+      width: wordRect.width + buffer * 2,
+      height: wordRect.height + buffer * 2,
+    });
+  }, [singleWordId, currentTime, activeGroup?.id]);
+
+  if (!transcription || activeWords.length === 0) return null;
 
   const groupBg = globalStyle.style.backgroundColor;
   const hasBg = groupBg && groupBg !== "transparent";
@@ -132,6 +188,7 @@ export default function CaptionOverlay({
         />
       )}
       <div
+        ref={wrapperRef}
         className="relative"
         style={{
           position: "absolute",
@@ -143,6 +200,7 @@ export default function CaptionOverlay({
         }}
       >
         <div
+          ref={rowRef}
           className="flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1 pointer-events-auto cursor-move"
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => {
@@ -182,20 +240,39 @@ export default function CaptionOverlay({
             <WordSpan
               key={word.id}
               word={word}
-              isSelected={selectedWordIds.includes(word.id)}
+              isSelected={selectedWordIds.includes(word.id) && selectedWordIds.length > 1}
               onSelect={(e) => selectWord(word.id, e.metaKey || e.ctrlKey)}
             />
           ))}
         </div>
 
-        {isSelected && (
-          <ScaleHandle
-            onDelta={() =>
-              activeGroup &&
-              useEditorStore
-                .getState()
-                .updateGroupLayout(activeGroup.id, { scale: Math.max(0.5, layout.scale + 0.05) })
-            }
+        {isSelected && frame && (
+          <div
+            className="absolute pointer-events-none border border-dashed border-black"
+            style={{ left: frame.left, top: frame.top, width: frame.width, height: frame.height }}
+          >
+            <ResizeHandles
+              scale={layout.scale}
+              onScale={(s) =>
+                activeGroup &&
+                useEditorStore
+                  .getState()
+                  .updateGroupLayout(activeGroup.id, { scale: Math.max(0.5, s) })
+              }
+            />
+            <FloatingToolbar
+              style={resolveWordStyle(activeWords[0], speakerStyles, globalStyle)}
+              onChange={(patch) => {
+                for (const wid of activeGroup?.wordIds ?? []) updateWordStyle(wid, patch);
+              }}
+            />
+          </div>
+        )}
+
+        {!isSelected && wordFrame && (
+          <div
+            className="absolute pointer-events-none border border-dashed border-black"
+            style={{ left: wordFrame.left, top: wordFrame.top, width: wordFrame.width, height: wordFrame.height }}
           />
         )}
       </div>
@@ -288,7 +365,7 @@ function WordSpan({
         inline-block cursor-pointer select-none transition-[transform,font-size]
         ${
           isSelected
-            ? "ring-2 ring-[#00FF66] ring-offset-2 ring-offset-transparent rounded"
+            ? "outline outline-1 outline-dashed outline-black outline-offset-4"
             : ""
         }
       `}
@@ -313,34 +390,168 @@ function WordSpan({
   );
 }
 
-function ScaleHandle({ onDelta }: { onDelta: () => void }) {
+const TOOLBAR_FONTS = [
+  { label: "Anton", value: "var(--font-anton), Impact, 'Arial Black', sans-serif" },
+  { label: "Inter", value: "Inter, system-ui, sans-serif" },
+  { label: "Impact", value: "Impact, sans-serif" },
+  { label: "Georgia", value: "Georgia, serif" },
+  { label: "Monospace", value: "monospace" },
+  { label: "Comic Sans", value: "'Comic Sans MS', 'Chalkboard SE', sans-serif" },
+];
+
+function FloatingToolbar({
+  style,
+  onChange,
+}: {
+  style: WordStyle;
+  onChange: (patch: Partial<WordStyle>) => void;
+}) {
   return (
     <div
-      className="absolute -bottom-3 -right-3 w-6 h-6 bg-blue-500 border-2 border-white rounded cursor-nwse-resize flex items-center justify-center"
-      onMouseDown={(e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        const startX = e.clientX;
-        const startY = e.clientY;
-        const move = (ev: MouseEvent) => {
-          const dx = ev.clientX - startX;
-          if (Math.max(Math.abs(dx), Math.abs(ev.clientY - startY)) > 8) {
-            const steps = Math.max(1, Math.round(dx / 24));
-            for (let i = 0; i < steps; i++) onDelta();
-            window.removeEventListener("mousemove", move);
-          }
-        };
-        const up = () => {
-          window.removeEventListener("mousemove", move);
-          window.removeEventListener("mouseup", up);
-        };
-        window.addEventListener("mousemove", move);
-        window.addEventListener("mouseup", up);
-      }}
+      className="absolute top-full mt-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-2 shadow-xl pointer-events-auto whitespace-nowrap z-20 cursor-default"
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     >
-      <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-        <path d="M21 3l-6 6m0 0h4m-4 0V5M3 21l6-6m0 0h-4m4 0v4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <select
+        value={style.fontFamily}
+        onChange={(e) => onChange({ fontFamily: e.target.value })}
+        className="bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-700 focus:outline-none max-w-[92px]"
+        title="Font family"
+      >
+        {TOOLBAR_FONTS.map((f) => (
+          <option key={f.label} value={f.value}>
+            {f.label}
+          </option>
+        ))}
+      </select>
+
+      <div
+        className="flex items-center gap-1 bg-zinc-800 rounded px-1.5 py-1 border border-zinc-700"
+        title="Font size"
+      >
+        <button
+          type="button"
+          onClick={() => onChange({ fontSize: Math.max(12, (style.fontSize ?? 48) - 2) })}
+          className="w-5 h-5 flex items-center justify-center text-zinc-300 hover:text-white text-sm leading-none"
+        >
+          −
+        </button>
+        <span className="text-xs text-white w-7 text-center font-mono">
+          {style.fontSize ?? 48}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange({ fontSize: (style.fontSize ?? 48) + 2 })}
+          className="w-5 h-5 flex items-center justify-center text-zinc-300 hover:text-white text-sm leading-none"
+        >
+          +
+        </button>
+      </div>
+
+      <label
+        className="relative w-7 h-7 rounded border border-zinc-700 overflow-hidden cursor-pointer shrink-0"
+        title="Text color"
+      >
+        <input
+          type="color"
+          value={style.color || "#FFFFFF"}
+          onChange={(e) => onChange({ color: e.target.value })}
+          className="absolute -inset-1 w-9 h-9 cursor-pointer"
+        />
+      </label>
+
+      <label
+        className="relative w-7 h-7 rounded border border-zinc-700 overflow-hidden cursor-pointer shrink-0"
+        title="Stroke color"
+      >
+        <input
+          type="color"
+          value={style.strokeColor || "#000000"}
+          onChange={(e) => onChange({ strokeColor: e.target.value })}
+          className="absolute -inset-1 w-9 h-9 cursor-pointer"
+        />
+      </label>
+
+      <div
+        className="flex items-center gap-1 bg-zinc-800 rounded px-1.5 py-1 border border-zinc-700"
+        title="Stroke width"
+      >
+        <button
+          type="button"
+          onClick={() => onChange({ strokeWidth: Math.max(0, (style.strokeWidth ?? 0) - 1) })}
+          className="w-5 h-5 flex items-center justify-center text-zinc-300 hover:text-white text-sm leading-none"
+        >
+          −
+        </button>
+        <span className="text-xs text-white w-5 text-center font-mono">
+          {style.strokeWidth ?? 0}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange({ strokeWidth: (style.strokeWidth ?? 0) + 1 })}
+          className="w-5 h-5 flex items-center justify-center text-zinc-300 hover:text-white text-sm leading-none"
+        >
+          +
+        </button>
+      </div>
     </div>
+  );
+}
+
+// 4 corners + 4 edge midpoints, Figma-style. Every handle drives the same
+// uniform `scale` (there's no separate width/height in the data model — a
+// caption block is text, not a box) — `dir` is the outward unit vector for
+// that handle's position, so dragging away from the block always grows it
+// and dragging toward the center always shrinks it, regardless of which of
+// the 8 handles was grabbed.
+const RESIZE_HANDLES: { key: string; className: string; dir: [number, number] }[] = [
+  { key: "tl", className: "-top-1.5 -left-1.5 cursor-nwse-resize", dir: [-1, -1] },
+  { key: "t", className: "-top-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize", dir: [0, -1] },
+  { key: "tr", className: "-top-1.5 -right-1.5 cursor-nesw-resize", dir: [1, -1] },
+  { key: "r", className: "top-1/2 -translate-y-1/2 -right-1.5 cursor-ew-resize", dir: [1, 0] },
+  { key: "br", className: "-bottom-1.5 -right-1.5 cursor-nwse-resize", dir: [1, 1] },
+  { key: "b", className: "-bottom-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize", dir: [0, 1] },
+  { key: "bl", className: "-bottom-1.5 -left-1.5 cursor-nesw-resize", dir: [-1, 1] },
+  { key: "l", className: "top-1/2 -translate-y-1/2 -left-1.5 cursor-ew-resize", dir: [-1, 0] },
+];
+
+function ResizeHandles({
+  scale,
+  onScale,
+}: {
+  scale: number;
+  onScale: (scale: number) => void;
+}) {
+  return (
+    <>
+      {RESIZE_HANDLES.map(({ key, className, dir }) => (
+        <div
+          key={key}
+          className={`absolute w-3 h-3 bg-blue-500 border-2 border-white rounded-sm z-10 pointer-events-auto ${className}`}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startScale = scale;
+            const len = Math.hypot(dir[0], dir[1]) || 1;
+            const move = (ev: MouseEvent) => {
+              const dx = ev.clientX - startX;
+              const dy = ev.clientY - startY;
+              // Project the drag onto this handle's outward direction so
+              // dragging away from the block grows it, toward it shrinks it.
+              const projected = (dx * dir[0] + dy * dir[1]) / len;
+              onScale(Math.max(0.5, startScale + projected / 100));
+            };
+            const up = () => {
+              window.removeEventListener("mousemove", move);
+              window.removeEventListener("mouseup", up);
+            };
+            window.addEventListener("mousemove", move);
+            window.addEventListener("mouseup", up);
+          }}
+        />
+      ))}
+    </>
   );
 }

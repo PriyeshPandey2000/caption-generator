@@ -291,6 +291,80 @@ Fix the default caption look (user-reported as "pathetic"), match it against rea
 
 ---
 
+## 2026-09-07 — CodeRabbit round 2 (PR #2) + hero placeholder
+
+### Session goal
+Read the *new* CodeRabbit review on PR #2 (run `3a99b886` — 6 inline comments against post-fix code), verify each is a real issue, fix, and push. Then clear the hero feature-card grid so something important can go there later.
+
+### Review triage — 6/6 were real, all fixed
+The first PR review's 10 comments were already fixed in the prior session; this run (on commits `e445d1e`→`f60b081`) added 6 more on the already-hardened code. Each was verified against the live source before changing anything:
+
+1. **Normalized-upload failures were lost.** `tryWithFfmpeg` ran the Groq `fetch` *inside* the ffmpeg try block, so a network failure or timeout became `null` and POST fell back to the direct-upload rejection instead of its 504. And a non-OK *normalized* response was discarded (only `normalized.ok` was checked). Fix: conversion failures still return `null`, but a `TimeoutError` now rethrows out to POST's 504 handler, and a non-OK fallback response is surfaced with its own status + body snippet.
+2. **Pending video restore wasn't invalidated by New Project.** The guard only checked `videoFile`, which `newProject` sets to `null` — so a New Project clicked while the IndexedDB read was pending would still restore the stale blob. Fix: capture `project.id` when the read starts; skip restore if the project has since changed.
+3. **A storage warning could be wiped by the transcription result.** `setVideoFile` reports IndexedDB save failure asynchronously through `project.error`, but `setTranscription` cleared `error: null` — a failing save followed by a later transcription made the only warning disappear. Fix: `setTranscription` now preserves the existing error instead of nulling it.
+4. **Replacement file input advertised less than UploadZone.** The in-editor "Drop a video" picker kept `accept="video/*"`, so an audio upload couldn't be replaced with another audio file from that path. Now matches UploadZone's `audio/*,video/*` filter.
+5. **Stale save failure could fire on newer state.** If a file replacement or New Project happened before `saveVideoToStorage` resolved, the old blob's `persisted === false` called `setError` on the new state. Fix: a `videoSaveGeneration` counter — captured before enqueue, incremented on replacement and New Project — gates whether the failure report applies.
+6. **Undo coalescing window didn't slide.** `pendingSince` stayed at the first change, so a slider drag longer than 500ms committed an intermediate baseline and split one gesture into multiple undo steps. Fix: each adjacent document change refreshes `pendingSince`, keeping one uninterrupted gesture as one undo step.
+
+**Verified:** `tsc --noEmit` and lint clean (only pre-existing `ApiKeyInput`/`setApiKey` unused warnings). Committed as `56f67d5` and pushed to `upstream/improvements`; PR head confirmed at `56f67d5`.
+
+### Hero placeholder (feature-card grid removed)
+- The landing hero's four-card grid (incl. "AI choreography in plain English") is replaced with a clearly-marked dashed placeholder — `Reserved for something important` — so the block can be swapped for real content later.
+- Removed the now-unused `FeatureCard` component and `FEATURE_ICONS` map (lint-clean).
+
+### Decisions
+- **Distinguish conversion failure from upload failure in the ffmpeg fallback.** A file ffmpeg can't read should say so; but a Groq timeout/network error on the normalised upload is an *upload* failure and must surface as its own status (504), not be silently misreported as the original rejection. It took an explicit `TimeoutError` rethrow to reconnect the fallback to the route's 504 handler.
+- **Every stale async result needs a generation.** The save-failure report and the pending video restore both got bitten by an old operation landing on new state; a monotonic `videoSaveGeneration` (and `project.id` for the restore) scopes async consequences to their origin.
+
+---
+
+## 2026-09-07 — Editor layout refactor: collapsible sidebars, floating toolbar, timeline zoom
+
+### Session goal
+Restructure the bottom tab bar into two collapsible side panels (Transcript + Style), build the previously-scoped floating contextual toolbar and multi-point resize, add timeline zoom, and normalize the app on a layered dark-gray theme with one green accent.
+
+### Layout restructure
+- **Transcript panel (new `TranscriptPanel.tsx`)** — its own collapsible left panel; **Style panel** (Inspector/Presets) is a second collapsible right panel (✕ to collapse). Collapsed panels drop to a vertical `CollapsedSidebarTab` (◀ + rotated label) that re-opens them. The old bottom Inspector/Presets tab bar is removed.
+- Accent normalized to the existing green `#00FF66` (active tab underline, sliders, counts) — the mix of blue/green highlighted states is gone.
+
+### Transcript panel behavior
+- Per-sentence paragraphs; a **plain click** jumps to the *exact* word clicked (not the sentence start — clicking the 4th word of a long sentence lands on the 4th word) while selecting the whole sentence so the matching range also lights up in the Timeline; **⌘/Ctrl+click** keeps the fine-grained per-word multi-select.
+- **Notable-word highlighting** — tokens containing digits render green (`NOTABLE_WORD`), on the grounds that numbers are what speech-to-text gets wrong most often; the highlight draws the eye to what's worth double-checking.
+- **Edit mode toggle (pencil)** — a per-sentence `contentEditable` surface (`EditableSentence`): click anywhere places a real native caret and free text editing works like a normal field. On blur the text splits back by whitespace and maps positionally onto word ids — **but only if the word count is unchanged**; an edit that splits/merges words reverts rather than leaving a timestamp-less word, which the data model can't represent.
+
+### EditableWord upgrades
+- New `editable` (gate editing entirely) and `editOnSingleClick` (click-to-edit for an explicit edit-mode context) props.
+- Caret is placed near where the user clicked (character-offset approximation) on open, instead of select-all-ing the word — which read as "did my click even land?".
+
+### Floating contextual toolbar (scoped in the Hormozi session → built now)
+- **Font family select, font-size −/+, text color, stroke color, stroke-width −/+** — attached under the selected caption directly on canvas (VEED/Figma-parity item from the earlier audit; was listed as "still open").
+
+### Multi-point resize (Figma-style)
+- **All 4 corners + 4 edge midpoints**, each with an outward unit direction vector; drag is projected onto that direction so dragging away always grows and toward always shrinks. Uniform `scale` (the data model has no separate width/height — a caption is text, not a box).
+- **Measured-frame positioning:** the row is visually scaled via `transform: scale()` (paint-only — the layout box stays at the unscaled size), so CSS-class-anchored handles would drift from the rendered text. Handles/toolbar instead sit on a frame measured from `getBoundingClientRect` each render — and re-measured on every `currentTime` tick, since active/emphasis word pops change the row's size during playback.
+- A **single selected word** gets the same dashed frame via measurement — not a CSS `outline`, which renders dashes with different spacing and reads as "why is this one thicker."
+
+### Timeline zoom
+- Magnifying-glass − / + buttons, a 1–4× slider, and a **Fit** button; the timeline body width scales with the zoom level inside `overflow-x-auto`. (Zoom and word-search were flagged as long-video gaps in the Hormozi session — zoom is done, search remains.)
+
+### Presets simplified
+- The AI-choreography prompt box and suggestion chips are gone. The single presets list now applies the **full choreography bundle** for names that share one (`CHOREOGRAPHED_PRESETS`: Hormozi, MrBeast, Clean, Neon) and plain style+motion for the rest — one list, not two.
+
+### Theme: layered dark-gray system
+- Base `zinc-950 → zinc-900`, panels `zinc-900 → zinc-800`, controls one step lighter; hero headline switched from the animated `hero-word-pop` to a gradient-clipped "speech"/"animated typography" treatment; transcribing spinner and highlight states use the `#00FF66` accent.
+
+### PRD
+- Added a Phase 3 candidate: **Player transport controls** — replace the plain-text "Play" with an icon-only `▶`/`⏸` and optional `▶ 00:12 / 02:01` time readout, a compact toolbar (`↶ ▶ ↷  time  🔊`), and a playback-speed menu (`0.5×/1×/1.5×/2×`). Not built.
+
+### Verified
+- `tsc --noEmit` clean; lint clean (only the pre-existing `ApiKeyInput`/`setApiKey` unused warnings).
+
+### Still open
+- Timeline word search/filter (long-video gap from the Hormozi session).
+- This refactor is implemented in the working tree but **not yet committed** or browser-verified end-to-end.
+
+---
+
 ## Decisions register
 
 | # | Decision | Rationale | Status |
@@ -318,3 +392,13 @@ Fix the default caption look (user-reported as "pathetic"), match it against rea
 | 21 | Default caption font is Anton, not Montserrat | Montserrat has a documented `-webkit-text-stroke` rendering bug (google/fonts#4212) that chokes small letter counters into solid blobs; confirmed against a real screenshot | Done |
 | 22 | Hormozi-style emphasis is color-only (no active-word size pop) | Reference screenshots show uniform word size; size-popping is the MrBeast look, and it was also inflating line-height and breaking multi-line caption spacing | Done |
 | 23 | Multi-select gets its own Inspector bulk-edit branch, not a Global Style fallback | Silently editing the whole video's default style when 2+ words were selected was a real correctness landmine, made more likely once marquee-select shipped | Done |
+| 24 | Normalized-upload failures stay distinct from ffmpeg conversion failures (timeout rethrown → 504; non-OK surfaces its own status) | A Groq timeout is an upload failure the user should see as such; converting it to `null` masked it as the original rejection | Committed `56f67d5` |
+| 25 | Async video restore is scoped to `project.id`; a New Project invalidates a pending restore | Otherwise a stale persisted blob reappears over a freshly started project | Committed `56f67d5` |
+| 26 | `setTranscription` preserves the existing `project.error` instead of clearing it | A video-persistence failure reported asynchronously must not be wiped by a later successful transcription | Committed `56f67d5` |
+| 27 | Video save-failure reports are gated on a `videoSaveGeneration` counter | A stale `persisted === false` from an old blob must not `setError` on newer state | Committed `56f67d5` |
+| 28 | Hero feature-card grid replaced with a placeholder block | Area reserved for content to be defined later; `FeatureCard`/icons removed since unused | Working tree |
+| 29 | Transcript and Style live in separate collapsible side panels, not a shared bottom tab bar | Both need to be visible simultaneously; collapsing to a vertical tab keeps room for the canvas/timeline | Working tree |
+| 30 | Selected-caption toolbar and resize handles are positioned from measured `getBoundingClientRect` geometry, re-measured per `currentTime` tick | The row scales via paint-only `transform: scale()`, so CSS-anchor-based handles would drift from the rendered text; active-word pops change size continuously during playback | Working tree |
+| 31 | Resize is uniform `scale` driven by a direction-projected drag on 8 handles | A caption is text, not a box — no width/height; projecting drag onto each handle's outward vector makes grow/shrink intuitive from any corner or edge | Working tree |
+| 32 | Transcript sentence edits commit only when the word count is unchanged | Splitting/merging words would leave a word with no timestamp, which the data model can't represent — revert, don't corrupt timing | Working tree |
+| 33 | Preset list applies the full choreography bundle for shared names (Hormozi/MrBeast/Clean/Neon), plain style+motion otherwise | One list, not two; the richer bundle is strictly better for those names | Working tree |

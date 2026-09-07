@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #09090b;
+  --background: #18181b;
   --foreground: #fafafa;
   --accent: #00ff66;
   --accent-dim: #22c55e;
@@ -130,25 +130,6 @@ input[type="color"]::-webkit-color-swatch-wrapper {
 input[type="color"]::-webkit-color-swatch {
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
-}
-
-@keyframes hero-word-pop {
-  0%,
-  100% {
-    transform: scale(1);
-    color: #fff;
-    text-shadow: none;
-  }
-  50% {
-    transform: scale(1.18);
-    color: #00ff66;
-    text-shadow: 0 0 16px rgba(0, 255, 102, 0.55);
-  }
-}
-
-.hero-word {
-  display: inline-block;
-  animation: hero-word-pop 2.4s ease-in-out infinite;
 }
 
 @keyframes float-y {

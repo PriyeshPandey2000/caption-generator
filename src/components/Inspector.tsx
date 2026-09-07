@@ -59,7 +59,7 @@ export default function Inspector() {
   if (selectedWords.length > 1) {
     const first = selectedWords[0];
     return (
-      <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white">
             {selectedWords.length} words selected
@@ -71,7 +71,7 @@ export default function Inspector() {
                 resetWordMotion(w.id);
               }
             }}
-            className="text-xs text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
+            className="text-xs text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600"
           >
             Reset all
           </button>
@@ -102,7 +102,7 @@ export default function Inspector() {
 
   if (!selectedWord) {
     return (
-      <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-4">
         <h3 className="text-sm font-semibold text-white mb-4">Global Style</h3>
         <StyleControls
           style={globalStyle.style}
@@ -125,7 +125,7 @@ export default function Inspector() {
   }
 
   return (
-    <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto p-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-white">
           &ldquo;{selectedWord.text}&rdquo;
@@ -136,7 +136,7 @@ export default function Inspector() {
               resetWordStyle(selectedWord.id);
               resetWordMotion(selectedWord.id);
             }}
-            className="text-xs text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
+            className="text-xs text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600"
           >
             Reset
           </button>
@@ -191,10 +191,10 @@ export default function Inspector() {
               flex-1 px-2 py-1.5 text-[10px] rounded transition-colors
               ${
                 preset.intensity === 0 && !hasManualZoom
-                  ? "bg-zinc-700 text-white"
+                  ? "bg-zinc-600 text-white"
                   : hasManualZoom && preset.intensity > 0
                     ? "bg-[#00FF66]/20 text-[#00FF66]"
-                    : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                    : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-white"
               }
             `}
           >
@@ -227,7 +227,7 @@ export default function Inspector() {
                 val as "inherit" | "none" | SfxName
               );
             }}
-            className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-700"
+            className="w-full bg-zinc-700 text-white text-xs rounded px-2 py-1.5 border border-zinc-600"
           >
             <option value="inherit">Inherit (auto)</option>
             <option value="none">None (silent)</option>
@@ -285,7 +285,7 @@ function StyleControls({
         <select
           value={style.textTransform || "none"}
           onChange={(e) => onChange({ textTransform: e.target.value as WordStyle["textTransform"] })}
-          className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-700"
+          className="w-full bg-zinc-700 text-white text-xs rounded px-2 py-1.5 border border-zinc-600"
         >
           <option value="none">None</option>
           <option value="uppercase">UPPERCASE</option>
@@ -319,7 +319,7 @@ function PositionControls({
             className={`flex-1 px-2 py-1.5 text-xs rounded transition-colors ${
               Math.round(y) === p.y
                 ? "bg-[#00ff66] text-black font-medium"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
             }`}
           >
             {p.label}
@@ -359,7 +359,7 @@ function MotionControls({
   return (
     <div className="space-y-4">
       {(["entrance", "active", "exit", "emphasis"] as const).map((key) => (
-        <div key={key} className="bg-zinc-800/50 rounded-lg p-3">
+        <div key={key} className="bg-zinc-700/50 rounded-lg p-3">
           <h5 className="text-xs font-medium text-zinc-300 mb-2 capitalize">
             {key}
           </h5>
@@ -373,7 +373,7 @@ function MotionControls({
                     type: e.target.value as AnimationRecipe["type"],
                   })
                 }
-                className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-700"
+                className="w-full bg-zinc-700 text-white text-xs rounded px-2 py-1.5 border border-zinc-600"
               >
                 <option value="none">None</option>
                 <option value="scale">Scale</option>
@@ -465,13 +465,13 @@ function FieldGroup({
             type="color"
             value={typeof value === "string" ? value : "#FFFFFF"}
             onChange={(e) => onChange(e.target.value as number | string)}
-            className="w-8 h-8 rounded border border-zinc-700 cursor-pointer"
+            className="w-8 h-8 rounded border border-zinc-600 cursor-pointer"
           />
           <input
             type="text"
             value={typeof value === "string" ? value : "#FFFFFF"}
             onChange={(e) => onChange(e.target.value as number | string)}
-            className="flex-1 bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-700 font-mono"
+            className="flex-1 bg-zinc-700 text-white text-xs rounded px-2 py-1.5 border border-zinc-600 font-mono"
           />
         </div>
       ) : (

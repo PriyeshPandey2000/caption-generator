@@ -13,6 +13,7 @@ export default function Timeline() {
   const transcription = useEditorStore((s) => s.project.transcription);
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const [filmstrip, setFilmstrip] = useState<{ url: string; frames: string[] } | null>(null);
+  const [zoom, setZoom] = useState(1);
   const currentTime = useEditorStore((s) => s.currentTime);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
@@ -112,7 +113,7 @@ export default function Timeline() {
   }, [videoUrl, duration]);
 
   return (
-    <div className="w-full bg-zinc-900 border-t border-zinc-800 px-4 py-3">
+    <div className="w-full bg-zinc-800 border-t border-zinc-800 px-4 py-3">
       <div className="flex items-center gap-3 mb-2">
         <span className="text-xs text-zinc-400 font-mono w-20">
           {formatTime(currentTime)}
@@ -121,8 +122,46 @@ export default function Timeline() {
         <span className="text-xs text-zinc-500 font-mono w-20">
           {formatTime(duration)}
         </span>
+
+        <div className="flex items-center gap-1.5 ml-auto">
+          <button
+            type="button"
+            onClick={() => setZoom((z) => Math.max(1, +(z - 0.5).toFixed(1)))}
+            title="Zoom out"
+            className="w-6 h-6 flex items-center justify-center text-zinc-400 hover:text-white rounded hover:bg-zinc-700"
+          >
+            <MagnifyIcon sign="-" />
+          </button>
+          <input
+            type="range"
+            min={1}
+            max={4}
+            step={0.5}
+            value={zoom}
+            onChange={(e) => setZoom(Number(e.target.value))}
+            className="w-24"
+            title="Timeline zoom"
+          />
+          <button
+            type="button"
+            onClick={() => setZoom((z) => Math.min(4, +(z + 0.5).toFixed(1)))}
+            title="Zoom in"
+            className="w-6 h-6 flex items-center justify-center text-zinc-400 hover:text-white rounded hover:bg-zinc-700"
+          >
+            <MagnifyIcon sign="+" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setZoom(1)}
+            className="text-[10px] px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300"
+          >
+            Fit
+          </button>
+        </div>
       </div>
 
+      <div className="overflow-x-auto">
+      <div style={{ width: `${zoom * 100}%` }}>
       <div
         ref={containerRef}
         onClick={handleClick}
@@ -243,7 +282,7 @@ export default function Timeline() {
               const x = e.clientX - rect.left;
               setCurrentTime(Math.max(0, (x / rect.width) * duration));
             }}
-            className="relative h-4 bg-zinc-800/60 rounded cursor-crosshair overflow-hidden"
+            className="relative h-4 bg-zinc-700/60 rounded cursor-crosshair overflow-hidden"
           >
             {sfxPositions.map(({ ev, startPct, widthPct }) => (
               <button
@@ -272,6 +311,8 @@ export default function Timeline() {
           </div>
         </div>
       )}
+      </div>
+      </div>
 
       {transcription && (
         <div className="mt-2 flex flex-wrap gap-1">
@@ -295,7 +336,7 @@ export default function Timeline() {
                   ${
                     selectedWordIds.includes(w.id)
                       ? "bg-blue-500/30 text-blue-300"
-                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                      : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
                   }
                 `}
                 inputClassName="text-xs px-2 py-0.5 rounded ring-2 ring-[#00FF66]"
@@ -304,5 +345,15 @@ export default function Timeline() {
         </div>
       )}
     </div>
+  );
+}
+
+function MagnifyIcon({ sign }: { sign: "+" | "-" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5" stroke="currentColor" strokeWidth={2}>
+      <circle cx="10.5" cy="10.5" r="6.5" strokeLinecap="round" />
+      <path d="M20 20l-4.35-4.35" strokeLinecap="round" />
+      <path d={sign === "+" ? "M10.5 7.5v6M7.5 10.5h6" : "M7.5 10.5h6"} strokeLinecap="round" />
+    </svg>
   );
 }
