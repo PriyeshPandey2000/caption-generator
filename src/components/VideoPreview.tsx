@@ -144,7 +144,10 @@ export default function VideoPreview() {
             ref={videoRef}
             src={videoUrl}
             onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+            onLoadedMetadata={(e) => {
+              const d = e.currentTarget.duration;
+              setDuration(Number.isFinite(d) && d > 0 ? d : 0);
+            }}
             className="w-full h-full object-contain"
             playsInline
             onClick={handleVideoClick}

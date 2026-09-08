@@ -224,7 +224,7 @@ MOST
 - **Audio-event tagging:** detect/stylize `[laughter]`, `[applause]`. **Status: BLOCKED** — same diarization-layer limitation as speakers; Groq's STT returns no audio-event labels. Not competition MVP; architect for later via the same `Composition` event layer (§2.2).
 - **Speaker-aware styling:** colorful per-speaker split. **Status: BLOCKED** — see §5; requires manual assignment UI or a third-party diarization service with its own API key. The styling infrastructure (`Word.speaker`, `speakerStyles`, `speakerMotions`, `resolveWordStyle`) is already built and dormant.
 
-### 2.5 Caption Animation Controls ✅ Major Differentiator
+### 2.5 Caption Animation Controls (Spec — Planned)
 
 Fine-grained control over how captions animate in, out, and while active — transforming static text into dynamic, attention-grabbing typography.
 
@@ -265,7 +265,7 @@ Fine-grained control over how captions animate in, out, and while active — tra
 
 **Why this wins:**
 - Competitors (CapCut, Submagic) offer 2–3 generic animations with no preview.
-- We offer 7+ animations with live previews + per-word control + AI auto-selection.
+- We will offer 7+ animations with live previews + per-word control + AI auto-selection.
 - This becomes the "wow factor" in the 2-minute judge demo — instantly visible, immediately impressive.
 
 ---

@@ -427,6 +427,23 @@ Implement the four previously-"not committed" Phase 3 candidates in one pass (pl
 
 ---
 
+## 2026-09-08 — CodeRabbit review triage on PR #4
+
+### Session goal
+Review the CodeRabbit comments posted on PR #4, separate real bugs from noise, and fix the genuine ones.
+
+### Verdicts
+- **Timeline `didRangeDrag` sticky flag (Major, valid)** — `onMove` set `didRangeDrag.current = true` and only `handleClick` cleared it. If a range-drag ended with the mouse released **outside** the timeline container, no `click` fired on the container so the flag stayed `true` and the user's next plain seek click was silently swallowed. Fixed by resetting `didRangeDrag.current = false` at the start of each background `mousedown` (before `onMove` can set it), while keeping the `handleClick` guard that suppresses seeking after an in-container drag.
+- **Timeline search Enter skips the first match (Minor, valid)** — typing a query highlights match index 0 (ring + `1/N`), but the first Enter ran `jumpToMatch(matchIndex + 1)` so it navigated to the *second* match; the highlighted one was unreachable forward (only Shift+Enter → wrap could hit it). Added a `visitedMatchRef` so the first Enter jumps to the currently-displayed match, subsequent Enter/Shift+Enter keep next/prev; the ref resets on query change, Escape, and the ✕ clear button.
+- **VideoPreview `duration` can become `Infinity` (Minor, valid)** — `onLoadedMetadata` stored `e.currentTarget.duration` unguarded; MediaRecorder-style WebM reports `Infinity`, which would poison the transport's time readout and skip-clamping. Now accepts the duration only when `Number.isFinite(d) && d > 0`, otherwise `0` — mirroring the existing `getVideoDuration` guard in `Editor.tsx`.
+- **PRD §2.5 marked as shipped (Minor, valid)** — the heading carried `✅ Major Differentiator` and "Why this wins" said "We offer 7+ animations", but caption animations are spec-only. Retitled to `(Spec — Planned)` and switched the claim to future tense until the picker/runtime/export paths exist.
+- **ExportPanel duplicate concurrent exports (Major, rejected)** — the reviewer's premise ("menu stays open, second click starts a second FFmpeg encoder") doesn't hold in current code: the main Export button *and* the chevron are both `disabled={!transcription || isExporting}` during an export, the dropdown's "Export MP4" item already calls `setMenuOpen(false)` before `exportMP4()`, and React 18 flushes discrete click events synchronously so the disabled state applies before a second click can land. No change made.
+
+### Verified after fixes
+- `tsc --noEmit` clean; eslint still only the two pre-existing warnings.
+
+---
+
 ## Decisions register
 
 | # | Decision | Rationale | Status |
@@ -474,3 +491,4 @@ Implement the four previously-"not committed" Phase 3 candidates in one pass (pl
 | 41 | `react-resizable-panels` v4 for resizable sidebars (`Group`/`Panel`/`Separator` + `panelRef` imperative API) | Stable, React 19 peer-supported, the de-facto panel library (Vercel-style editors); a hand-rolled drag-width would've been ~150 lines of pointer/uuid math | Working tree |
 | 42 | Sidebar width is **not** persisted (no `useDefaultLayout`); open/closed stays editor state, mirrored imperatively (`collapse()`/`expand()` in an effect, drag-collapses folded in via `onResize` + `isCollapsed()`) | v4 has no controlled `collapsed` prop; predictable defaults each load beat remembered-layout edge cases (drag-to-zero restoring "open" on reload) | Working tree |
 | 43 | The drag separator doubles as the collapsed reopen tab (thin pill when open → `CollapsedSidebarTab` inside the Separator when closed) | One element serves drag-resize and show/hide; the old `CollapsedSidebarTab` is reused inside the Separator | Working tree |
+| 44 | Search navigation is query-scoped: a `visitedMatchRef` makes the first Enter jump to the already-highlighted match, then Enter/Shift+Enter cycle next/prev; reset on query change/Escape/clear | Otherwise the first Enter skips the first match — the ring's `1/N` target is only reachable backwards via wrap | Working tree |

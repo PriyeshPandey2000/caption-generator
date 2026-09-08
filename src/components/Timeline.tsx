@@ -16,6 +16,10 @@ export default function Timeline() {
   const [matchIndex, setMatchIndex] = useState(0);
   const [rangeSel, setRangeSel] = useState<{ a: number; b: number } | null>(null);
   const didRangeDrag = useRef(false);
+  // Tracks whether the current search query has been navigated yet, so the
+  // first Enter jumps to the match already highlighted (index 0) instead of
+  // skipping past it.
+  const visitedMatchRef = useRef(false);
   const rangeRef = useRef<{ a: number; b: number } | null>(null);
   const currentTime = useEditorStore((s) => s.currentTime);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
@@ -62,6 +66,9 @@ export default function Timeline() {
       if (t.closest("[data-word-block]") || t.closest("[data-playhead]")) return;
       if (!containerRef.current || !duration) return;
       e.preventDefault();
+      // A new interaction starts clean so a stale drag flag from a mouseup
+      // that landed outside this container can't eat the next plain seek click.
+      didRangeDrag.current = false;
       const rect = containerRef.current.getBoundingClientRect();
       const toPct = (clientX: number) =>
         Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
@@ -225,15 +232,23 @@ export default function Timeline() {
             onChange={(e) => {
               setSearchQuery(e.target.value);
               setMatchIndex(0);
+              visitedMatchRef.current = false;
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                if (e.shiftKey) jumpToMatch(matchIndex - 1);
-                else jumpToMatch(matchIndex + 1);
+                if (!visitedMatchRef.current) {
+                  visitedMatchRef.current = true;
+                  jumpToMatch(matchIndex);
+                } else if (e.shiftKey) {
+                  jumpToMatch(matchIndex - 1);
+                } else {
+                  jumpToMatch(matchIndex + 1);
+                }
               } else if (e.key === "Escape") {
                 setSearchQuery("");
                 setMatchIndex(0);
+                visitedMatchRef.current = false;
               }
             }}
             placeholder="Find word..."
@@ -268,6 +283,7 @@ export default function Timeline() {
                 onClick={() => {
                   setSearchQuery("");
                   setMatchIndex(0);
+                  visitedMatchRef.current = false;
                 }}
                 title="Clear search"
                 className="w-5 h-5 flex items-center justify-center text-zinc-400 hover:text-white rounded hover:bg-zinc-700"
