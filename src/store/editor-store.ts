@@ -41,6 +41,7 @@ interface EditorState {
   project: Project;
   currentTime: number;
   isPlaying: boolean;
+  playbackRate: number;
   selectedWordIds: string[];
   selectedCaptionGroupId: string | null;
   videoFile: File | null;
@@ -53,6 +54,7 @@ interface EditorState {
   setError: (error: string | null) => void;
   setCurrentTime: (t: number) => void;
   setIsPlaying: (v: boolean) => void;
+  setPlaybackRate: (rate: number) => void;
   selectWord: (id: string, multi?: boolean) => void;
   setSelectedWords: (ids: string[]) => void;
   selectCaptionGroup: (id: string | null) => void;
@@ -216,6 +218,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   project: initialState,
   currentTime: 0,
   isPlaying: false,
+  playbackRate: 1,
   selectedWordIds: [],
   selectedCaptionGroupId: null,
   videoFile: null,
@@ -276,6 +279,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   setCurrentTime: (t) => set({ currentTime: t }),
 
   setIsPlaying: (v) => set({ isPlaying: v }),
+
+  setPlaybackRate: (rate) => set({ playbackRate: rate }),
 
   selectWord: (id, multi = false) =>
     set((s) => ({

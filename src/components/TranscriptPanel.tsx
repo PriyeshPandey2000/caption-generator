@@ -35,7 +35,7 @@ export default function TranscriptPanel({ onClose }: { onClose?: () => void }) {
   if (!transcription) return null;
 
   return (
-    <div className="w-72 flex flex-col border-l border-zinc-800 bg-zinc-900">
+    <div className="w-full min-w-0 h-full flex flex-col border-l border-zinc-800 bg-zinc-900 overflow-hidden">
       <div className="px-4 py-2 border-b border-zinc-800 shrink-0 flex items-start justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-white">Transcript</h3>
@@ -84,7 +84,7 @@ export default function TranscriptPanel({ onClose }: { onClose?: () => void }) {
             <div
               key={group.id}
               className={`pl-2.5 py-1 -my-1 border-l-2 rounded-r transition-colors ${
-                isActive ? "border-[#00FF66]" : "border-zinc-700"
+                isActive ? "border-[#00FF66]" : "border-transparent"
               } ${isSentenceSelected ? "bg-blue-500/10" : ""}`}
             >
               {editMode ? (

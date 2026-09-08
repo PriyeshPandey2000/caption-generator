@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import {
+  Group,
+  Panel as ResizablePanel,
+  Separator,
+  usePanelRef,
+} from "react-resizable-panels";
 import { useEditorStore } from "@/store/editor-store";
 import { parseSegmentsToWords, groupWordsIntoCaptions } from "@/core/captions";
 import {
@@ -15,6 +21,7 @@ import TranscriptPanel from "@/components/TranscriptPanel";
 import Inspector from "@/components/Inspector";
 import Presets from "@/components/Presets";
 import ExportPanel from "@/components/ExportPanel";
+import TransportControls from "@/components/TransportControls";
 import Link from "next/link";
 import ApiKeyInput from "@/components/ApiKeyInput";
 import CaptionOverlay from "@/components/CaptionOverlay";
@@ -62,6 +69,8 @@ export default function Editor() {
   const loadDemo = useEditorStore((s) => s.loadDemo);
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
+  const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
+  const setPlaybackRate = useEditorStore((s) => s.setPlaybackRate);
   const restorePersisted = useEditorStore((s) => s.restorePersisted);
   const newProject = useEditorStore((s) => s.newProject);
   const undo = useEditorStore((s) => s.undo);
@@ -245,7 +254,7 @@ export default function Editor() {
               onClick={undo}
               disabled={!canUndo}
               title="Undo last change (⌘Z / Ctrl+Z)"
-              className="px-2.5 py-1.5 text-sm rounded-lg border border-white/15 transition-colors disabled:opacity-35 disabled:pointer-events-none bg-transparent text-white hover:bg-white/10"
+              className="h-7 px-2.5 text-xs rounded-lg border border-white/15 transition-colors disabled:opacity-35 disabled:pointer-events-none bg-transparent text-white hover:bg-white/10 flex items-center justify-center"
             >
               ↺ Undo
             </button>
@@ -253,7 +262,7 @@ export default function Editor() {
               onClick={redo}
               disabled={!canRedo}
               title="Redo (⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y)"
-              className="px-2.5 py-1.5 text-sm rounded-lg border border-white/15 transition-colors disabled:opacity-35 disabled:pointer-events-none bg-transparent text-white hover:bg-white/10"
+              className="h-7 px-2.5 text-xs rounded-lg border border-white/15 transition-colors disabled:opacity-35 disabled:pointer-events-none bg-transparent text-white hover:bg-white/10 flex items-center justify-center"
             >
               ↻ Redo
             </button>
@@ -264,7 +273,7 @@ export default function Editor() {
               newProject();
             }}
             title="Start over — clears the saved project"
-            className="px-3 py-1.5 text-white bg-transparent border border-white/15 text-sm rounded-lg hover:bg-white/10 transition-colors"
+            className="h-7 px-3 text-white bg-transparent border border-white/15 text-xs rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
           >
             New Project
           </button>
@@ -277,9 +286,15 @@ export default function Editor() {
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 flex flex-col">
-          <div className="flex-1 p-4 overflow-hidden">
+      <Group orientation="horizontal" className="flex-1 min-w-0 overflow-hidden">
+        <ResizablePanel
+          id="editor-main"
+          minSize="30"
+          defaultSize="58"
+          className="min-w-0 flex flex-col"
+        >
+          <div className="flex flex-col min-w-0 h-full">
+            <div className="flex-1 p-4 overflow-hidden">
             {!transcription ? (
               <div className="relative h-full flex flex-col items-center justify-center gap-6 px-4">
                 <div className="text-center max-w-2xl">
@@ -347,20 +362,14 @@ export default function Editor() {
                     <div className="relative w-full h-full flex items-center justify-center">
                       <CaptionOverlay />
                       <div className="absolute top-4 left-4 flex items-center gap-2 z-10">
-                        <button
-                          onClick={() => setIsPlaying(!isPlaying)}
-                          className="px-3 py-1.5 bg-black/70 text-white text-sm rounded-lg hover:bg-black/90 transition-colors flex items-center gap-1.5"
-                        >
-                          {isPlaying ? (
-                            <>
-                              <span className="text-[10px]">⏸</span> Pause
-                            </>
-                          ) : (
-                            <>
-                              <span className="text-[10px]">▶</span> Play
-                            </>
-                          )}
-                        </button>
+                        <TransportControls
+                          duration={transcription?.duration || 0}
+                          onPlayPause={(r) => {
+                            setPlaybackRate(r);
+                            setIsPlaying(!isPlaying);
+                          }}
+                          onSeek={setCurrentTime}
+                        />
                         <button
                           onClick={() => {
                             const input = document.createElement("input");
@@ -396,19 +405,29 @@ export default function Editor() {
           </div>
 
           {transcription && <Timeline />}
-        </div>
+          </div>
+          </ResizablePanel>
 
-        {transcription &&
-          (showTranscript ? (
+        {transcription && (
+          <ResizableSidebar
+            panelId="editor-transcript"
+            label="Transcript"
+            open={showTranscript}
+            onOpenChange={setShowTranscript}
+          >
             <TranscriptPanel onClose={() => setShowTranscript(false)} />
-          ) : (
-            <CollapsedSidebarTab label="Transcript" onClick={() => setShowTranscript(true)} />
-          ))}
+          </ResizableSidebar>
+        )}
 
-        {transcription &&
-          (showStylePanel ? (
-            <div className="w-72 flex flex-col border-l border-zinc-800 bg-zinc-800">
-              <div className="flex items-center border-b border-zinc-700 shrink-0">
+        {transcription && (
+          <ResizableSidebar
+            panelId="editor-style"
+            label="Style"
+            open={showStylePanel}
+            onOpenChange={setShowStylePanel}
+          >
+            <div className="w-full min-w-0 h-full flex flex-col border-l border-zinc-800 bg-zinc-900 overflow-hidden">
+              <div className="flex items-center border-b border-zinc-800 shrink-0">
                 <button
                   onClick={() => setActivePanel("inspector")}
                   className={`flex-1 py-2 text-xs font-medium transition-colors ${
@@ -440,10 +459,9 @@ export default function Editor() {
               {activePanel === "inspector" && <Inspector />}
               {activePanel === "presets" && <Presets />}
             </div>
-          ) : (
-            <CollapsedSidebarTab label="Style" onClick={() => setShowStylePanel(true)} />
-          ))}
-      </div>
+          </ResizableSidebar>
+        )}
+      </Group>
     </div>
   );
 }
@@ -473,7 +491,7 @@ function CollapsedSidebarTab({ label, onClick }: { label: string; onClick: () =>
     <button
       onClick={onClick}
       title={`Show ${label} panel`}
-      className="w-7 shrink-0 flex flex-col items-center justify-center gap-2 border-l border-zinc-800 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+      className="w-7 h-full shrink-0 flex flex-col items-center justify-center gap-2 border-l border-zinc-800 bg-zinc-800 hover:bg-zinc-700 transition-colors"
     >
       <span className="text-zinc-400 text-xs">◀</span>
       <span
@@ -483,5 +501,94 @@ function CollapsedSidebarTab({ label, onClick }: { label: string; onClick: () =>
         {label}
       </span>
     </button>
+  );
+}
+
+// One resizable sidebar: a drag strip (Separator) next to a Panel that can be
+// collapsed to zero width. Collapse happens either via a header ✕ (calls
+// `onOpenChange(false)`) or by the user dragging the separator below the panel's
+// minSize; the collapsed state is mirrored up through `onOpenChange` so the
+// parent can swap the strip for the vertical "show panel" tab.
+function ResizableSidebar({
+  panelId,
+  label,
+  open,
+  onOpenChange,
+  children,
+  defaultSize = "22",
+  minSize = "14",
+  maxSize = "40",
+}: {
+  panelId: string;
+  label: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+  defaultSize?: string;
+  minSize?: string;
+  maxSize?: string;
+}) {
+  const panelRef = usePanelRef();
+  const openRef = useRef(open);
+
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  // The Panel's size is uncontrolled, so respond to `open` imperatively:
+  // collapse on ✕, expand on a tab click.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    if (!open && !panel.isCollapsed()) panel.collapse();
+    else if (open && panel.isCollapsed()) panel.expand();
+  }, [open, panelRef]);
+
+  // A user drag-righting the separator below minSize collapses the panel on
+  // its own — mirror that back so the open/closed state stays in sync.
+  const handleResize = useCallback(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const collapsed = panel.isCollapsed();
+    if (collapsed !== !openRef.current) onOpenChange(!collapsed);
+  }, [onOpenChange, panelRef]);
+
+  return (
+    <>
+      <Separator className="group relative flex items-center justify-center shrink-0 px-0.5 py-0 hover:bg-zinc-800/40 active:bg-zinc-800/70 transition-colors">
+        {open ? (
+          <svg
+            viewBox="0 0 12 24"
+            width="10"
+            height="18"
+            fill="currentColor"
+            aria-hidden="true"
+            className="text-zinc-600 group-hover:text-[#00FF66] group-hover:drop-shadow-[0_0_3px_rgba(0,255,102,0.6)] transition-colors shrink-0"
+          >
+            <circle cx="3" cy="4" r="1.4" />
+            <circle cx="9" cy="4" r="1.4" />
+            <circle cx="3" cy="12" r="1.4" />
+            <circle cx="9" cy="12" r="1.4" />
+            <circle cx="3" cy="20" r="1.4" />
+            <circle cx="9" cy="20" r="1.4" />
+          </svg>
+        ) : (
+          <CollapsedSidebarTab label={label} onClick={() => onOpenChange(true)} />
+        )}
+      </Separator>
+      <ResizablePanel
+        id={panelId}
+        collapsible
+        collapsedSize="0"
+        defaultSize={defaultSize}
+        minSize={minSize}
+        maxSize={maxSize}
+        panelRef={panelRef}
+        onResize={handleResize}
+        className="min-w-0 h-full overflow-hidden"
+      >
+        {children}
+      </ResizablePanel>
+    </>
   );
 }

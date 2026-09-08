@@ -1,8 +1,23 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { GlobalStyle, WordStyle, SfxDensity, SfxVolume, SfxPackId } from "@/core/types";
 import { resolveChoreography } from "@/core/choreography";
+
+const CUSTOM_PRESETS_KEY = "captionlab_custom_presets";
+
+function loadCustomPresets(): { name: string; style: Partial<GlobalStyle> }[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CUSTOM_PRESETS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 const presets: { name: string; style: Partial<GlobalStyle> }[] = [
   {
@@ -146,6 +161,32 @@ const CHOREOGRAPHED_PRESETS = new Set(["Hormozi", "MrBeast", "Clean", "Neon"]);
 export default function Presets() {
   const applyPreset = useEditorStore((s) => s.applyPreset);
   const applyChoreography = useEditorStore((s) => s.applyChoreography);
+  const globalStyle = useEditorStore((s) => s.project.globalStyle);
+  const [customPresets, setCustomPresets] = useState(loadCustomPresets);
+  const [presetName, setPresetName] = useState("");
+  const [savedMsg, setSavedMsg] = useState("");
+
+  const savePreset = useCallback(() => {
+    const name = presetName.trim();
+    if (!name) return;
+    const snapshot: Partial<GlobalStyle> = {
+      style: globalStyle.style,
+      motion: globalStyle.motion,
+      transform: globalStyle.transform,
+    };
+    const next = [...customPresets.filter((p) => p.name !== name), { name, style: snapshot }];
+    localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(next));
+    setCustomPresets(next);
+    setPresetName("");
+    setSavedMsg(`Saved "${name}"`);
+    setTimeout(() => setSavedMsg(""), 2000);
+  }, [presetName, customPresets, globalStyle]);
+
+  const deletePreset = useCallback((name: string) => {
+    const next = loadCustomPresets().filter((p) => p.name !== name);
+    localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(next));
+    setCustomPresets(next);
+  }, []);
 
   return (
     <div className="flex-1 overflow-y-auto p-4">
@@ -171,6 +212,72 @@ export default function Presets() {
             </p>
           </button>
         ))}
+      </div>
+
+      {customPresets.length > 0 && (
+        <>
+          <h3 className="text-sm font-semibold text-[#00FF66] mt-6 mb-3">
+            Your Presets
+          </h3>
+          <div className="space-y-2">
+            {customPresets.map((preset) => (
+              <div
+                key={preset.name}
+                className="relative group rounded-lg"
+              >
+                <button
+                  onClick={() => applyPreset(preset.style)}
+                  className="w-full text-left px-3 py-2.5 bg-zinc-700 hover:bg-zinc-600 rounded-lg transition-colors"
+                >
+                  <span className="text-sm text-white group-hover:text-[#00FF66] transition-colors">
+                    {preset.name}
+                  </span>
+                  <PresetPreview style={preset.style.style} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deletePreset(preset.name);
+                  }}
+                  title={`Delete "${preset.name}"`}
+                  className="absolute top-1.5 right-1.5 w-6 h-6 flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="mt-6 px-3 py-3 bg-zinc-700/40 rounded-lg border border-zinc-600/40">
+        <h3 className="text-xs font-semibold text-white mb-2">
+          Save current style as preset
+        </h3>
+        <div className="flex gap-1.5">
+          <input
+            value={presetName}
+            onChange={(e) => setPresetName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") savePreset();
+            }}
+            placeholder="Preset name"
+            className="flex-1 min-w-0 bg-zinc-700 text-white text-xs rounded px-2 py-1.5 border border-zinc-600 focus:border-[#00FF66]/60 focus:outline-none"
+          />
+          <button
+            onClick={savePreset}
+            disabled={!presetName.trim()}
+            className="px-2.5 py-1.5 text-[10px] bg-[#00FF66] text-black font-semibold rounded-lg hover:bg-[#22C55E] disabled:opacity-35 disabled:hover:bg-[#00FF66] transition-colors"
+          >
+            Save
+          </button>
+        </div>
+        {savedMsg && (
+          <p className="mt-1.5 text-[10px] text-[#00FF66]">{savedMsg}</p>
+        )}
+        <p className="text-[10px] text-zinc-600 mt-1.5">
+          Saved locally — carries across projects.
+        </p>
       </div>
 
       <h3 className="text-sm font-semibold text-white mt-6 mb-3">

@@ -227,7 +227,7 @@ export default function Inspector() {
                 val as "inherit" | "none" | SfxName
               );
             }}
-            className="w-full bg-zinc-700 text-white text-xs rounded px-2 py-1.5 border border-zinc-600"
+            className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-800"
           >
             <option value="inherit">Inherit (auto)</option>
             <option value="none">None (silent)</option>
@@ -285,7 +285,7 @@ function StyleControls({
         <select
           value={style.textTransform || "none"}
           onChange={(e) => onChange({ textTransform: e.target.value as WordStyle["textTransform"] })}
-          className="w-full bg-zinc-700 text-white text-xs rounded px-2 py-1.5 border border-zinc-600"
+          className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-800"
         >
           <option value="none">None</option>
           <option value="uppercase">UPPERCASE</option>
@@ -359,7 +359,7 @@ function MotionControls({
   return (
     <div className="space-y-4">
       {(["entrance", "active", "exit", "emphasis"] as const).map((key) => (
-        <div key={key} className="bg-zinc-700/50 rounded-lg p-3">
+        <div key={key} className="bg-zinc-800 rounded-lg p-3">
           <h5 className="text-xs font-medium text-zinc-300 mb-2 capitalize">
             {key}
           </h5>
@@ -373,7 +373,7 @@ function MotionControls({
                     type: e.target.value as AnimationRecipe["type"],
                   })
                 }
-                className="w-full bg-zinc-700 text-white text-xs rounded px-2 py-1.5 border border-zinc-600"
+                className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-800"
               >
                 <option value="none">None</option>
                 <option value="scale">Scale</option>
@@ -465,13 +465,13 @@ function FieldGroup({
             type="color"
             value={typeof value === "string" ? value : "#FFFFFF"}
             onChange={(e) => onChange(e.target.value as number | string)}
-            className="w-8 h-8 rounded border border-zinc-600 cursor-pointer"
+            className="w-8 h-8 rounded border border-zinc-800 cursor-pointer"
           />
           <input
             type="text"
             value={typeof value === "string" ? value : "#FFFFFF"}
             onChange={(e) => onChange(e.target.value as number | string)}
-            className="flex-1 bg-zinc-700 text-white text-xs rounded px-2 py-1.5 border border-zinc-600 font-mono"
+            className="flex-1 bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-800 font-mono"
           />
         </div>
       ) : (
