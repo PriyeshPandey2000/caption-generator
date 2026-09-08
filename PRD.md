@@ -224,6 +224,50 @@ MOST
 - **Audio-event tagging:** detect/stylize `[laughter]`, `[applause]`. **Status: BLOCKED** — same diarization-layer limitation as speakers; Groq's STT returns no audio-event labels. Not competition MVP; architect for later via the same `Composition` event layer (§2.2).
 - **Speaker-aware styling:** colorful per-speaker split. **Status: BLOCKED** — see §5; requires manual assignment UI or a third-party diarization service with its own API key. The styling infrastructure (`Word.speaker`, `speakerStyles`, `speakerMotions`, `resolveWordStyle`) is already built and dormant.
 
+### 2.5 Caption Animation Controls ✅ Major Differentiator
+
+Fine-grained control over how captions animate in, out, and while active — transforming static text into dynamic, attention-grabbing typography.
+
+**Animation Types:**
+| Animation | Description | Use Case |
+|-----------|-------------|----------|
+| None | Static text, no animation | Clean, minimal content |
+| Fade | Opacity transitions (in/out) | Elegant, professional |
+| Pop | Scale bounce with overshoot | Punchy, energetic |
+| Bounce | Vertical spring animation | Playful, casual |
+| Typewriter | Character-by-character reveal | Storytelling, suspense |
+| Word-by-word | Sequential word entrance | Explainers, tutorials |
+| Slide | Directional entrance (up/down/left/right) | Dynamic transitions |
+
+**Architecture:**
+- `CaptionAnimation`: `{ type, duration, delay, easing, direction?, stagger? }` — stored per caption group or inherited from global/speaker settings.
+- Preview renders via CSS animations or WAAPI (Web Animations API) — seek-safe, deterministic playback.
+- Export consumes same animation data via ffmpeg subtitle filters or Remotion-style keyframe baking.
+
+**UI:**
+- **Animation picker** in Inspector panel — dropdown with icon previews for each type.
+- **Tiny live previews** — hover over animation type to see a 0.5s text sample animate (critical for discoverability).
+- **Per-word override** — select individual words to apply different animations (e.g., typewriter for buildup, pop for punchline).
+- **Timing controls** — duration (50–500ms), stagger delay between words (0–100ms), easing presets (linear, ease-in, ease-out, bounce, elastic).
+- **Preview scrub** — drag timeline to see animation at any point without playing.
+
+**Choreography Integration:**
+- AI choreography auto-selects animations based on content:
+  - Punchlines → Pop (high energy)
+  - Questions → Slide (curiosity)
+  - Emphasis → Bounce (playful)
+  - Default → Fade (safe, professional)
+- User can override AI choices; overrides persist through re-choreography.
+
+**Export:**
+- Burn-in via ffmpeg `drawtext` filter animations or Remotion keyframe export.
+- SRT/VTT exports include animation metadata as custom tags (for compatible players).
+
+**Why this wins:**
+- Competitors (CapCut, Submagic) offer 2–3 generic animations with no preview.
+- We offer 7+ animations with live previews + per-word control + AI auto-selection.
+- This becomes the "wow factor" in the 2-minute judge demo — instantly visible, immediately impressive.
+
 ---
 
 # PHASE 3 — SCALE-UP (only if time allows; nothing blocks the win)

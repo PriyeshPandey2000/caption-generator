@@ -374,6 +374,59 @@ Restructure the bottom tab bar into two collapsible side panels (Transcript + St
 
 ---
 
+## 2026-09-08 — Four Phase 3 items shipped (transport, range-select, presets, export) + PRD §2.5
+
+### Session goal
+Implement the four previously-"not committed" Phase 3 candidates in one pass (player transport controls, timeline range-select, savable custom presets, export dropdown), all browser-verified — and spec the caption-animation-controls differentiator in the PRD.
+
+### PRD
+- Added **§2.5 Caption Animation Controls ✅ Major Differentiator** — a 7-type animation picker (None / Fade / Pop / Bounce / Typewriter / Word-by-word / Slide) with tiny live previews on hover, per-word override, timing controls (duration / stagger / easing), and AI choreography auto-selection (punchline→Pop, question→Slide, emphasis→Bounce, default→Fade). Spec sits in Phase 2 alongside camera + SFX.
+
+### Player transport controls (was: Phase 3 "not committed") — implemented
+- New `src/components/TransportControls.tsx`: `↶  ▶/⏸  ↷  00:12 / 02:01  speed`. Replaces the plain-text `Play`/`Pause` buttons in **both** the demo overlay (`Editor`) and the real video (`VideoPreview`).
+- **Speed menu** (`0.5× / 1× / 1.5× / 2×`): demo RAF loop advances `dt × playbackRate`; the `<video>` element gets `video.playbackRate` on play *and* reactively via an effect so a mid-play speed change applies live. `playbackRate` lives in the store (view state — intentionally **not** undo-tracked).
+- **Skip ±5s** reads `useEditorStore.getState().currentTime` instead of the render closure — fixed a real stale-closure bug where two rapid skips both computed from the same old time.
+- Verified live in the browser: title flips Play↔Pause (Space semantics preserved), time advances 2.92→3.62s on play, 2× speed measured ≈ 1.98s video per 1s wall, +5s/−5s and the speed menu all land correctly.
+
+### Timeline range-select (VEED's #1 unaddressed request) — implemented
+- **Drag on empty track background** selects every word whose `[start, end]` intersects the drag range; the range renders as a translucent blue band; the selection feeds the existing bulk-edit Inspector ("N words selected", Style + Motion override for all).
+- **Drag-start disambiguation** (per PRD design): word-block clicks keep select-and-seek, edge-drag handles keep retiming, and the playhead handle — previously inert — is now **draggable to scrub** (`data-playhead`). A drag-only selection never seeks the playhead; a plain click still seeks.
+- First implementation called `setSelectedWords` inside a `setRangeSel` updater → React `set-state-in-render` warning. Refactored to a `rangeRef` read in the `mouseup` handler; warning confirmed gone (0 occurrences in a cleared dev log).
+- Verified live: 8%→55% drag selects 20 words (bulk panel "20 words selected"), 16–17-word drags, single word-block click selects 1 word + seeks to the click position, playhead drag scrubs 0→7.83s. **Bulk-reposition deliberately scoped out** (position is per-group, not per-word) — same first-pass cut as the PRD's.
+
+### Savable custom presets (VEED's most-praised capability) — implemented
+- "Save current style as preset" card at the top of the Presets panel: name input + Save → a `Partial<GlobalStyle>` snapshot (`style` + `motion` + `transform`) stored **globally** in `localStorage` under `captionlab_custom_presets`, rendered under a green "Your Presets" divider with a per-card delete (✕).
+- Applied with the same `applyPreset` path as built-ins; snapshots carry across videos (global, not per-project).
+- Verified live: save → "Your Presets"/"Saved…" → full snapshot written to localStorage → survives a page reload → delete removes it (`[]`).
+
+### Export dropdown (was: Phase 3 "not committed") — implemented
+- `ExportPanel` is now one split control: the main **Export** button burns MP4 directly; the chevron ▾ opens `Export MP4 / Export SRT / Export VTT`. The header no longer advertises three separate export buttons. Out-of-element click closes the menu.
+- Verified live: chevron opens all three items; main button label still carries the in-progress export status.
+
+### Transcript panel polish (user tweak)
+- Inactive sentence rows in `TranscriptPanel` switched from a visible `border-zinc-700` left rail to `border-transparent`, so only the active (playing) sentence shows the green rail — the transcript reads as calm focus instead of a row of gray borders. One-line class change; active/selected states untouched.
+
+### Resizable sidebars (react-resizable-panels v4)
+- **Library**: `react-resizable-panels` **v4** (`Group`/`Panel`/`Separator`, the rewritten API — exports `Group` not `PanelGroup`, `Separator` not `PanelResizeHandle`, imperative collapse via `panelRef`). Stable, React-19-peer-supported, the panel library behind Vercel-style editors. Alias-imported `Panel as ResizablePanel` to dodge Editor's existing `type Panel`.
+- **Layout**: one `Group direction="horizontal"` wraps the whole canvas row with ids `editor-main` (default 58%, min 30%), `editor-transcript` (default 22%, min 14%, max 40%), `editor-style` (same as transcript). When there is no transcription the group renders only the main panel — the conditional `ResizableSidebar`s simply aren't mounted.
+- **Drag strip**: each sidebar renders its own `<Separator>`; *open* → a 6px drag pill (hover → green glow) you drag to resize; *collapsed* → the existing vertical `CollapsedSidebarTab` (w-7, ◀ + vertical label) rendered **inside** the separator, so the strip and the reopen affordance are the same element. Double-click on a separator resets that panel to its default size (library built-in). After a follow-up pass the open strip now shows the classic **grip-vertical drag handle** (2×3 dot pattern, inline SVG, zinc → green glow on hover) instead of the plain pill — reads unmistakably as "draggable" without adding an icon dependency.
+- **Collapse sync**: v4 has no controlled `collapsed` prop, so `open` (the editor's `showTranscript`/`showStylePanel`) is mirrored to the panel imperatively — an effect calls `panelRef.collapse()/expand()`, and a `ResizableSidebar` `onResize` handler polls `panelRef.isCollapsed()` to fold drag-originated collapses back into React state (guarded by an `openRef` so it never loops). ✕ still collapses; clicking the tab expands to the panel's most-recent size.
+- **Content**: `TranscriptPanel` and the Style wrapper moved off fixed `w-72` to `w-full min-w-0 h-full` so they fill whatever width the user drags to.
+- Verified live in the browser at 1280×800: pointer-drag on the transcript separator collapsed the panel and popped the tab in (0 errors, tab at x≈977), tab click re-expanded, ✕ collapsed back to 0, a normal style-panel drag widened 273→349px without collapsing, and a fresh reload landed on the defaults (721/273/273). `tsc --noEmit` clean; eslint shows only the two pre-existing warnings. Layout widths are deliberately **not** persisted across reloads (no `useDefaultLayout`) — predictable defaults each load.
+
+### Open
+- **"Fit the seek bar of volume"** — a user request in this session refers to an attached screenshot this model could not read; no volume/seek-bar element exists in the app today. Awaiting clarification before acting (candidate readings: a video volume slider on the transport, or the timeline seek bar's layout).
+- Timeline word search/filter (long-video gap from the Hormozi session) remains.
+- The 2026-09-07 layout refactor (collapsible panels, floating toolbar, multi-point resize, timeline zoom) is committed to the working tree but still entirely uncommitted to git alongside this session's four features.
+
+### Decisions
+- **`playbackRate` is store view state** (not part of the undo document subset): speed is a playback preference, not an edit.
+- **Range-select by start location, not a mode toggle** — dragging the playhead scrubs, dragging the background selects, word-blocks keep click/edge-drag semantics; no separate "selection tool" state to get stuck in.
+- **Custom presets live in a separate localStorage key** (`captionlab_custom_presets`) rather than the existing project autosave key, so a preset is global and survives New Project.
+- **Skip buttons read the store directly**, not the render-closure `currentTime`, so repeat taps in the same frame can't double-apply a stale time.
+
+---
+
 ## Decisions register
 
 | # | Decision | Rationale | Status |
@@ -412,3 +465,12 @@ Restructure the bottom tab bar into two collapsible side panels (Transcript + St
 | 32 | Transcript sentence edits commit only when the word count is unchanged | Splitting/merging words would leave a word with no timestamp, which the data model can't represent — revert, don't corrupt timing | Working tree |
 | 33 | Preset list applies the full choreography bundle for shared names (Hormozi/MrBeast/Clean/Neon), plain style+motion otherwise | One list, not two; the richer bundle is strictly better for those names | Working tree |
 | 34 | Selection frames re-measure via `ResizeObserver` attached to the row/word element, not just dependency-driven effects | Style/text edits reflow geometry without touching the effect deps; observing the element catches every real geometry change (incl. edits), and the word frame now also re-measures on `layout.scale` | Working tree |
+| 35 | Caption Animation Controls spec'd as PRD §2.5 (7 types + live previews + per-word override + AI auto-selection) | Positioned as a major differentiator — competitors offer 2–3 generic animations with no preview | Spec |
+| 36 | `playbackRate` is store view state, excluded from undo history | Speed is a playback preference, not a document edit; scrubbing/playing already exclude view state | Working tree |
+| 37 | Timeline range-select is disambiguated by drag **start location**, not a mode toggle (playhead=scrub, background=range, word-block=click/edge-drag) | No selection-tool state to get stuck in; matches the PRD's resolved-but-unbuilt design; bulk-reposition deliberately scoped out of first pass | Working tree |
+| 38 | Custom presets stored globally under a dedicated `captionlab_custom_presets` key, applied via the existing `applyPreset` path | A preset should survive New Project and carry across videos, unlike the per-project autosave blob | Working tree |
+| 39 | Export is one split control (main button = MP4, chevron = SRT/VTT/MP4) | The primary action stays the obvious default; the header stops advertising three export "buttons" at once | Working tree |
+| 40 | Transport skip buttons re-read the store's `currentTime`, never the render closure | Two rapid skips in one frame otherwise both compute from the same stale time and cancel out | Working tree |
+| 41 | `react-resizable-panels` v4 for resizable sidebars (`Group`/`Panel`/`Separator` + `panelRef` imperative API) | Stable, React 19 peer-supported, the de-facto panel library (Vercel-style editors); a hand-rolled drag-width would've been ~150 lines of pointer/uuid math | Working tree |
+| 42 | Sidebar width is **not** persisted (no `useDefaultLayout`); open/closed stays editor state, mirrored imperatively (`collapse()`/`expand()` in an effect, drag-collapses folded in via `onResize` + `isCollapsed()`) | v4 has no controlled `collapsed` prop; predictable defaults each load beat remembered-layout edge cases (drag-to-zero restoring "open" on reload) | Working tree |
+| 43 | The drag separator doubles as the collapsed reopen tab (thin pill when open → `CollapsedSidebarTab` inside the Separator when closed) | One element serves drag-resize and show/hide; the old `CollapsedSidebarTab` is reused inside the Separator | Working tree |

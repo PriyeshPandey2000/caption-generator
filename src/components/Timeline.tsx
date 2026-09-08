@@ -2,8 +2,6 @@
 
 import { useRef, useCallback, useMemo, useState, useEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
-import { formatTime } from "@/core/captions";
-import EditableWord from "@/components/EditableWord";
 
 const FILMSTRIP_FRAMES = 14;
 
@@ -14,11 +12,16 @@ export default function Timeline() {
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const [filmstrip, setFilmstrip] = useState<{ url: string; frames: string[] } | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const [rangeSel, setRangeSel] = useState<{ a: number; b: number } | null>(null);
+  const didRangeDrag = useRef(false);
+  const rangeRef = useRef<{ a: number; b: number } | null>(null);
   const currentTime = useEditorStore((s) => s.currentTime);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
   const selectWord = useEditorStore((s) => s.selectWord);
-  const updateWordText = useEditorStore((s) => s.updateWordText);
+  const setSelectedWords = useEditorStore((s) => s.setSelectedWords);
   const retimeWord = useEditorStore((s) => s.retimeWord);
   const sfxEvents = useEditorStore((s) => s.project.composition.sfxEvents);
   const sfxEnabled = useEditorStore((s) => s.project.globalStyle.sfx.enabled);
@@ -37,6 +40,11 @@ export default function Timeline() {
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!containerRef.current || !duration) return;
+      // A range-select drag ends in a click — don't also seek the playhead.
+      if (didRangeDrag.current) {
+        didRangeDrag.current = false;
+        return;
+      }
       const rect = containerRef.current.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const pct = x / rect.width;
@@ -45,7 +53,101 @@ export default function Timeline() {
     [duration, setCurrentTime]
   );
 
+  // Drag on the empty timeline background to range-select all words that
+  // intersect the selection (the bulk-edit Inspector panel consumes the multi
+  // selection). Word blocks / edge handles / the playhead have their own drag.
+  const handleBackgroundMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("[data-word-block]") || t.closest("[data-playhead]")) return;
+      if (!containerRef.current || !duration) return;
+      e.preventDefault();
+      const rect = containerRef.current.getBoundingClientRect();
+      const toPct = (clientX: number) =>
+        Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
+      const a = toPct(e.clientX);
+      const range = { a, b: a };
+      rangeRef.current = range;
+      setRangeSel(range);
+
+      const onMove = (ev: MouseEvent) => {
+        const b = toPct(ev.clientX);
+        if (Math.abs(b - a) > 0.002) didRangeDrag.current = true;
+        range.b = b;
+        rangeRef.current = { a, b };
+        setRangeSel({ a, b });
+      };
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        if (didRangeDrag.current) {
+          const sel = rangeRef.current;
+          if (sel && transcription && duration) {
+            const t0 = Math.min(sel.a, sel.b) * duration;
+            const t1 = Math.max(sel.a, sel.b) * duration;
+            const ids = transcription.words
+              .filter((w) => w.end >= t0 && w.start <= t1)
+              .map((w) => w.id);
+            if (ids.length > 0) setSelectedWords(ids);
+          }
+        }
+        rangeRef.current = null;
+        setRangeSel(null);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [duration, transcription, setSelectedWords]
+  );
+
+  // Drag the playhead handle to scrub (it previously only indicated position).
+  const handlePlayheadMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!containerRef.current || !duration) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const move = (ev: MouseEvent) => {
+        const pct = Math.min(Math.max((ev.clientX - rect.left) / rect.width, 0), 1);
+        setCurrentTime(pct * duration);
+      };
+      const up = () => {
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    },
+    [duration, setCurrentTime]
+  );
+
   const playheadPct = duration ? (currentTime / duration) * 100 : 0;
+
+  const searchMatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q || !transcription) return [];
+    return transcription.words.filter((w) => w.text.toLowerCase().includes(q));
+  }, [searchQuery, transcription]);
+
+  const matchIds = useMemo(() => new Set(searchMatches.map((w) => w.id)), [searchMatches]);
+
+  const jumpToMatch = useCallback(
+    (idx: number) => {
+      if (searchMatches.length === 0) return;
+      const clamped = ((idx % searchMatches.length) + searchMatches.length) % searchMatches.length;
+      const word = searchMatches[clamped];
+      setMatchIndex(clamped);
+      setCurrentTime(word.start);
+      selectWord(word.id);
+      // Scrolls the nearest scrollable ancestor (the zoomed timeline's
+      // overflow-x-auto wrapper) so the match is visible even when it's
+      // currently off-screen at higher zoom levels.
+      containerRef.current
+        ?.querySelector<HTMLElement>(`[data-word-id="${word.id}"]`)
+        ?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    },
+    [searchMatches, setCurrentTime, selectWord]
+  );
 
   const wordPositions = useMemo(() => {
     if (!transcription) return [];
@@ -115,13 +217,66 @@ export default function Timeline() {
   return (
     <div className="w-full bg-zinc-800 border-t border-zinc-800 px-4 py-3">
       <div className="flex items-center gap-3 mb-2">
-        <span className="text-xs text-zinc-400 font-mono w-20">
-          {formatTime(currentTime)}
-        </span>
-        <span className="text-xs text-zinc-400">/</span>
-        <span className="text-xs text-zinc-400 font-mono w-20">
-          {formatTime(duration)}
-        </span>
+        <div className="flex items-center gap-1 relative">
+          <SearchIcon className="w-3 h-3 text-zinc-500 absolute left-2 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setMatchIndex(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (e.shiftKey) jumpToMatch(matchIndex - 1);
+                else jumpToMatch(matchIndex + 1);
+              } else if (e.key === "Escape") {
+                setSearchQuery("");
+                setMatchIndex(0);
+              }
+            }}
+            placeholder="Find word..."
+            title="Find a word in the transcript"
+            className="w-28 pl-6 pr-1.5 py-1 text-xs bg-zinc-700 text-white rounded-lg border border-zinc-600 focus:border-[#00FF66] focus:outline-none placeholder:text-zinc-500"
+          />
+          {searchQuery.trim() && (
+            <>
+              <span className="text-[10px] text-zinc-400 font-mono whitespace-nowrap px-1">
+                {searchMatches.length > 0 ? `${matchIndex + 1}/${searchMatches.length}` : "0/0"}
+              </span>
+              <button
+                type="button"
+                onClick={() => jumpToMatch(matchIndex - 1)}
+                disabled={searchMatches.length === 0}
+                title="Previous match"
+                className="w-5 h-5 flex items-center justify-center text-zinc-400 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-400 rounded hover:bg-zinc-700"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => jumpToMatch(matchIndex + 1)}
+                disabled={searchMatches.length === 0}
+                title="Next match"
+                className="w-5 h-5 flex items-center justify-center text-zinc-400 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-400 rounded hover:bg-zinc-700"
+              >
+                ›
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setMatchIndex(0);
+                }}
+                title="Clear search"
+                className="w-5 h-5 flex items-center justify-center text-zinc-400 hover:text-white rounded hover:bg-zinc-700"
+              >
+                ✕
+              </button>
+            </>
+          )}
+        </div>
 
         <div className="flex items-center gap-1.5 ml-auto">
           <button
@@ -141,6 +296,7 @@ export default function Timeline() {
             onChange={(e) => setZoom(Number(e.target.value))}
             className="w-24"
             title="Timeline zoom"
+            style={{ "--slider-fill": `${((zoom - 1) / (4 - 1)) * 100}%` } as React.CSSProperties}
           />
           <button
             type="button"
@@ -165,6 +321,7 @@ export default function Timeline() {
       <div
         ref={containerRef}
         onClick={handleClick}
+        onMouseDown={handleBackgroundMouseDown}
         className={`relative h-16 rounded-lg cursor-crosshair overflow-hidden ${
           thumbnails.length > 0 ? "bg-black" : "bg-zinc-800"
         }`}
@@ -180,12 +337,23 @@ export default function Timeline() {
             ))}
           </div>
         )}
+        {rangeSel && (
+          <div
+            className="absolute top-0 bottom-0 bg-blue-500/25 border-x border-blue-400/70 pointer-events-none"
+            style={{
+              left: `${Math.min(rangeSel.a, rangeSel.b) * 100}%`,
+              width: `${Math.abs(rangeSel.b - rangeSel.a) * 100}%`,
+            }}
+          />
+        )}
         {wordPositions.map((w, i) => {
           const prevEnd = i > 0 ? wordPositions[i - 1].end : 0;
           const nextStart = i < wordPositions.length - 1 ? wordPositions[i + 1].start : duration;
           return (
             <div
               key={w.id}
+              data-word-block
+              data-word-id={w.id}
               onClick={(e) => {
                 e.stopPropagation();
                 selectWord(w.id, e.metaKey || e.ctrlKey);
@@ -206,6 +374,13 @@ export default function Timeline() {
                   selectedWordIds.includes(w.id)
                     ? "bg-blue-500/60 opacity-100"
                     : "bg-zinc-600/50 hover:bg-zinc-500/60 opacity-70"
+                }
+                ${
+                  matchIds.has(w.id)
+                    ? searchMatches[matchIndex]?.id === w.id
+                      ? "ring-2 ring-amber-300"
+                      : "ring-1 ring-amber-400/70"
+                    : ""
                 }
               `}
               style={{
@@ -265,7 +440,9 @@ export default function Timeline() {
         })}
 
         <div
-          className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10"
+          data-playhead
+          onMouseDown={handlePlayheadMouseDown}
+          className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10 cursor-ew-resize"
           style={{ left: `${playheadPct}%` }}
         >
           <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-red-500 rounded-full" />
@@ -313,38 +490,16 @@ export default function Timeline() {
       )}
       </div>
       </div>
-
-      {transcription && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {transcription.words
-            .filter(
-              (w) =>
-                currentTime >= w.start - 0.1 && currentTime <= w.end + 0.1
-            )
-            .map((w) => (
-              <EditableWord
-                key={w.id}
-                text={w.text}
-                onSelect={() => {
-                  setCurrentTime(w.start);
-                  selectWord(w.id);
-                }}
-                onCommit={(t) => updateWordText(w.id, t)}
-                fieldName={`timeline-word-${w.id}`}
-                className={`
-                  text-xs px-2 py-0.5 rounded cursor-pointer transition-colors inline-block
-                  ${
-                    selectedWordIds.includes(w.id)
-                      ? "bg-blue-500/30 text-blue-300"
-                      : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
-                  }
-                `}
-                inputClassName="text-xs px-2 py-0.5 rounded ring-2 ring-[#00FF66]"
-              />
-            ))}
-        </div>
-      )}
     </div>
+  );
+}
+
+function SearchIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2}>
+      <circle cx="10.5" cy="10.5" r="6.5" strokeLinecap="round" />
+      <path d="M20 20l-4.35-4.35" strokeLinecap="round" />
+    </svg>
   );
 }
 

@@ -31,7 +31,7 @@ export function useDemoPlayback(active: boolean) {
         return;
       }
       if (lastRef.current != null) {
-        const dt = (t - lastRef.current) / 1000;
+        const dt = ((t - lastRef.current) / 1000) * state.playbackRate;
         let next = state.currentTime + dt;
         if (next >= duration) {
           next = 0;

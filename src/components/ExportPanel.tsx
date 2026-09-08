@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { wordsToSRT } from "@/core/captions";
 
@@ -24,6 +24,18 @@ export default function ExportPanel() {
   const transcription = useEditorStore((s) => s.project.transcription);
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
 
   const exportSRT = useCallback(() => {
     if (!transcription) return;
@@ -175,28 +187,56 @@ export default function ExportPanel() {
   }, [transcription]);
 
   return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={exportSRT}
-        disabled={!transcription}
-        className="px-3 py-1.5 text-xs text-white bg-transparent border border-white/15 rounded-lg hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-      >
-        SRT
-      </button>
-      <button
-        onClick={exportVTT}
-        disabled={!transcription}
-        className="px-3 py-1.5 text-xs text-white bg-transparent border border-white/15 rounded-lg hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-      >
-        VTT
-      </button>
+    <div className="relative flex items-center" ref={menuRef}>
       <button
         onClick={exportMP4}
         disabled={!transcription || isExporting}
-        className="px-3 py-1.5 text-xs bg-[#00FF66] text-black font-semibold rounded-lg hover:bg-[#22C55E] disabled:opacity-40 transition-colors"
+        className="h-7 px-3 text-xs bg-[#00FF66] text-black font-semibold rounded-l-lg hover:bg-[#22C55E] disabled:opacity-40 transition-colors flex items-center justify-center gap-1.5"
+        title="Export MP4 (burn in captions)"
       >
-        {isExporting ? progress || "Exporting..." : "Export MP4"}
+        {isExporting ? progress || "Exporting..." : "Export"}
       </button>
+      <button
+        onClick={() => setMenuOpen((o) => !o)}
+        disabled={!transcription || isExporting}
+        title="More export formats"
+        className="h-7 px-2 text-xs bg-[#00FF66] text-black font-semibold rounded-r-lg border-l border-black/20 hover:bg-[#22C55E] disabled:opacity-40 transition-colors flex items-center justify-center"
+      >
+        <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5}>
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {menuOpen && (
+        <div className="absolute right-0 top-full mt-1 min-w-[160px] rounded-lg bg-zinc-700 border border-zinc-600 shadow-2xl overflow-hidden z-30">
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              exportMP4();
+            }}
+            className="w-full text-left px-3 py-2 text-xs text-white hover:bg-zinc-600 transition-colors flex items-center gap-2"
+          >
+            Export MP4
+          </button>
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              exportSRT();
+            }}
+            className="w-full text-left px-3 py-2 text-xs text-white hover:bg-zinc-600 transition-colors flex items-center gap-2"
+          >
+            Export SRT
+          </button>
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              exportVTT();
+            }}
+            className="w-full text-left px-3 py-2 text-xs text-white hover:bg-zinc-600 transition-colors flex items-center gap-2"
+          >
+            Export VTT
+          </button>
+        </div>
+      )}
     </div>
   );
 }

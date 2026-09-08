@@ -1,14 +1,16 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import CaptionOverlay from "./CaptionOverlay";
+import TransportControls from "./TransportControls";
 import { sampleZoom } from "@/core/zoom";
 import { sfxEngine } from "@/core/audio";
 
 export default function VideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const zoomRef = useRef<HTMLDivElement>(null);
+  const [duration, setDuration] = useState(0);
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
@@ -23,19 +25,45 @@ export default function VideoPreview() {
     }
   }, [setCurrentTime]);
 
-  const handlePlayPause = useCallback(() => {
-    if (!videoRef.current) return;
-    if (videoRef.current.paused) {
-      // Resume the audio context inside the user gesture (browser autoplay
-      // policy) rather than relying on the attach effect that ran on mount.
-      if (sfxSettings.enabled) sfxEngine.ensureContext();
-      videoRef.current.play();
-      setIsPlaying(true);
-    } else {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    }
-  }, [setIsPlaying, sfxSettings.enabled]);
+  const handlePlayPause = useCallback(
+    (rate?: number) => {
+      if (!videoRef.current) return;
+      const r = rate ?? useEditorStore.getState().playbackRate;
+      if (videoRef.current.paused) {
+        // Resume the audio context inside the user gesture (browser autoplay
+        // policy) rather than relying on the attach effect that ran on mount.
+        if (sfxSettings.enabled) sfxEngine.ensureContext();
+        videoRef.current.playbackRate = r;
+        videoRef.current.play();
+        setIsPlaying(true);
+      } else {
+        videoRef.current.pause();
+        setIsPlaying(false);
+      }
+    },
+    [setIsPlaying, sfxSettings.enabled]
+  );
+
+  // Keep the HTMLVideoElement in sync with the store's playback rate (the
+  // speed menu can change while playing).
+  const playbackRate = useEditorStore((s) => s.playbackRate);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.playbackRate = playbackRate;
+  }, [playbackRate]);
+
+  const handleSeek = useCallback(
+    (t: number) => {
+      const video = videoRef.current;
+      if (video) video.currentTime = t;
+    },
+    []
+  );
+
+  const handleVideoClick = useCallback(() => {
+    handlePlayPause();
+  }, [handlePlayPause]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -105,37 +133,41 @@ export default function VideoPreview() {
   if (!videoUrl) return null;
 
   return (
-    <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
-      <div
-        ref={zoomRef}
-        className="w-full h-full"
-        style={{ transformOrigin: "center center" }}
-      >
-        <video
-          ref={videoRef}
-          src={videoUrl}
-          onTimeUpdate={handleTimeUpdate}
-          className="w-full h-full object-contain"
-          playsInline
-          onClick={handlePlayPause}
+    <div className="w-full h-full flex flex-col gap-2">
+      <div className="relative flex-1 min-h-0 bg-black rounded-lg overflow-hidden">
+        <div
+          ref={zoomRef}
+          className="w-full h-full"
+          style={{ transformOrigin: "center center" }}
+        >
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+            className="w-full h-full object-contain"
+            playsInline
+            onClick={handleVideoClick}
+          />
+        </div>
+        <div
+          className="absolute inset-x-0 bottom-0 pointer-events-none"
+          style={{
+            height: "35%",
+            background:
+              "linear-gradient(to top, rgba(0,0,0,0.65), transparent)",
+          }}
+        />
+        <CaptionOverlay onBackgroundClick={handlePlayPause} />
+      </div>
+
+      <div className="shrink-0">
+        <TransportControls
+          duration={duration}
+          onPlayPause={handlePlayPause}
+          onSeek={handleSeek}
         />
       </div>
-      <div
-        className="absolute inset-x-0 bottom-0 pointer-events-none"
-        style={{
-          height: "35%",
-          background:
-            "linear-gradient(to top, rgba(0,0,0,0.65), transparent)",
-        }}
-      />
-      <CaptionOverlay onBackgroundClick={handlePlayPause} />
-
-      <button
-        onClick={handlePlayPause}
-        className="absolute bottom-4 left-4 px-3 py-1.5 bg-black/70 text-white text-sm rounded-lg hover:bg-black/90 transition-colors"
-      >
-        {isPlaying ? "Pause" : "Play"}
-      </button>
     </div>
   );
 }
