@@ -134,6 +134,27 @@ export default function ExportPanel() {
       const needsScale = meta.width > MAX_EXPORT_WIDTH;
       const scaleFilter = needsScale ? `scale='min(${MAX_EXPORT_WIDTH},iw)':-2,` : "";
 
+      const cropToPlatform = useEditorStore.getState().previewPlatform !== "none";
+      // Center-crop to the active platform's 9:16 feed frame (keep full
+      // height, trim width to 9:16, even output width for yuv420p) so the
+      // exported file matches what the preview chrome shows instead of
+      // shipping a letterboxed 16:9 file.
+      const cropFilter = cropToPlatform
+        ? `crop='min(iw,trunc(ih*9/16/2)*2)':ih:'(iw-ow)/2':0,`
+        : "";
+
+      // Effective output width: the fixed 1280 cap (or native), then the
+      // platform crop. Caption FontSize scales with it — libass sizes are in
+      // output pixels, so scaling keeps the caption the same share of the
+      // frame it occupies on the 1280-wide design surface instead of
+      // overflowing (or shrinking) when the canvas does.
+      let outW = needsScale ? Math.min(MAX_EXPORT_WIDTH, meta.width) : meta.width;
+      const outH = needsScale
+        ? Math.round((meta.height * outW) / meta.width / 2) * 2
+        : meta.height;
+      if (cropToPlatform) outW = Math.min(outW, Math.floor((outH * 9) / 32) * 2);
+      const fontPx = Math.max(10, Math.min(48, Math.round(24 * (outW / MAX_EXPORT_WIDTH))))
+
       // Compose the audio filtergraph: delay/scale/pitch each SFX into its
       // video-time slot, then amix them over the video's own stereo audio.
       let audioFilter: string | null = null;
@@ -147,7 +168,7 @@ export default function ExportPanel() {
         "-i", "input.mp4",
         ...sfxInputs,
         "-t", String(MAX_EXPORT_DURATION_SEC),
-        "-vf", `${scaleFilter}subtitles=captions.srt:force_style='FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2'`,
+        "-vf", `${scaleFilter}${cropFilter}subtitles=captions.srt:force_style='FontSize=${fontPx},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2'`,
       ];
       if (audioFilter) {
         args.push("-filter_complex", audioFilter, "-map", "0:v", "-map", "[aout]");
@@ -162,7 +183,15 @@ export default function ExportPanel() {
         "output.mp4"
       );
 
-      setProgress(sfxOn ? "Mixing sounds & burning captions..." : "Burning in captions...");
+      setProgress(
+        sfxOn
+          ? cropToPlatform
+            ? "Cropping 9:16, mixing sounds & burning captions..."
+            : "Mixing sounds & burning captions..."
+          : cropToPlatform
+            ? "Cropping 9:16 & burning captions..."
+            : "Burning in captions..."
+      );
       await ffmpeg.exec(args);
 
       setProgress("Downloading...");

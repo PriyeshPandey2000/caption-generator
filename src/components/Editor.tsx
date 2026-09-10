@@ -25,6 +25,7 @@ import TransportControls from "@/components/TransportControls";
 import Link from "next/link";
 import ApiKeyInput from "@/components/ApiKeyInput";
 import CaptionOverlay from "@/components/CaptionOverlay";
+import PlatformPreviewOverlay, { PlatformPreviewToggle } from "@/components/PlatformPreviewOverlay";
 import { useDemoPlayback } from "@/hooks/useDemoPlayback";
 import { TranscriptionResult } from "@/core/types";
 
@@ -72,6 +73,10 @@ export default function Editor() {
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const setPlaybackRate = useEditorStore((s) => s.setPlaybackRate);
   const restorePersisted = useEditorStore((s) => s.restorePersisted);
+  const [demoFrameRatio, setDemoFrameRatio] = useState(1);
+  const demoSurfaceRef = useRef<HTMLDivElement>(null);
+  const previewPlatform = useEditorStore((s) => s.previewPlatform);
+  const setPreviewPlatform = useEditorStore((s) => s.setPreviewPlatform);
   const newProject = useEditorStore((s) => s.newProject);
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
@@ -113,6 +118,23 @@ export default function Editor() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Measure the empty-state demo surface so its fallback captions scale with
+  // the 9:16 platform frame the same way the real preview does.
+  useEffect(() => {
+    const el = demoSurfaceRef.current;
+    if (!el) return;
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const portraitW = Math.min(rect.height * (9 / 16), rect.width);
+      setDemoFrameRatio(portraitW / rect.width);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   useEffect(() => {
@@ -358,37 +380,56 @@ export default function Editor() {
                 {videoUrl ? (
                   <VideoPreview />
                 ) : (
-                  <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
-                    <div className="relative w-full h-full flex items-center justify-center">
-                      <CaptionOverlay />
-                      <div className="absolute top-4 left-4 flex items-center gap-2 z-10">
-                        <TransportControls
-                          duration={transcription?.duration || 0}
-                          onPlayPause={(r) => {
-                            setPlaybackRate(r);
-                            setIsPlaying(!isPlaying);
-                          }}
-                          onSeek={setCurrentTime}
-                        />
-                        <button
-                          onClick={() => {
-                            const input = document.createElement("input");
-                            input.type = "file";
-                            input.accept = ".mp4,.webm,.ogg,.mov,.avi,.mkv,audio/*,video/*";
-                            input.onchange = (e) => {
-                              const f = (e.target as HTMLInputElement).files?.[0];
-                              if (f) handleFileSelect(f);
-                            };
-                            input.click();
-                          }}
-                          className="px-3 py-1.5 bg-black/70 text-white text-sm rounded-lg hover:bg-black/90 transition-colors"
-                        >
-                          Drop a video
-                        </button>
+                  <div className="w-full h-full flex flex-col gap-2">
+                    <div
+                      ref={demoSurfaceRef}
+                      className="relative flex-1 min-h-0 bg-zinc-950 rounded-lg overflow-hidden flex items-center justify-center"
+                    >
+                      <div
+                        className={`relative h-full bg-black overflow-hidden flex items-center justify-center ${
+                          previewPlatform !== "none" ? "aspect-[9/16] max-w-full ring-1 ring-white/15" : "w-full"
+                        }`}
+                      >
+                        <CaptionOverlay scaleFactor={previewPlatform !== "none" ? demoFrameRatio : 1} />
+                        <PlatformPreviewOverlay platform={previewPlatform} />
                       </div>
-                      <div className="absolute bottom-3 left-4 text-[11px] text-zinc-500">
+                      <PlatformPreviewToggle
+                        value={previewPlatform}
+                        onChange={setPreviewPlatform}
+                        className="absolute top-2 right-2 z-20"
+                      />
+                      <div className="absolute bottom-3 left-4 text-[11px] text-zinc-500 pointer-events-none">
                         Space = play · drag a caption to move · drag the corner to scale · Del = reset style
                       </div>
+                    </div>
+
+                    <div className="shrink-0 flex items-center gap-2">
+                      <TransportControls
+                        duration={transcription?.duration || 0}
+                        onPlayPause={(r) => {
+                          setPlaybackRate(r);
+                          setIsPlaying(!isPlaying);
+                        }}
+                        onSeek={setCurrentTime}
+                      />
+                      <button
+                        onClick={() => {
+                          const input = document.createElement("input");
+                          input.type = "file";
+                          input.accept = ".mp4,.webm,.ogg,.mov,.avi,.mkv,audio/*,video/*";
+                          input.onchange = (e) => {
+                            const f = (e.target as HTMLInputElement).files?.[0];
+                            if (!f) return;
+                            if (window.confirm("This will replace the sample captions with your own video — continue?")) {
+                              handleFileSelect(f);
+                            }
+                          };
+                          input.click();
+                        }}
+                        className="px-3 py-1.5 bg-black/70 text-white text-sm rounded-lg hover:bg-black/90 transition-colors"
+                      >
+                        Drop a video
+                      </button>
                     </div>
                   </div>
                 )}
@@ -536,12 +577,19 @@ function ResizableSidebar({
   }, [open]);
 
   // The Panel's size is uncontrolled, so respond to `open` imperatively:
-  // collapse on ✕, expand on a tab click.
+  // collapse on ✕, expand on a tab click. Deferred to the next frame because
+  // on a fresh mount (e.g. this sidebar appearing for the first time when a
+  // transcript loads), react-resizable-panels hasn't finished registering
+  // this panel's constraints with its PanelGroup yet — calling isCollapsed()
+  // synchronously in the same commit throws "Panel constraints not found."
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
-    if (!open && !panel.isCollapsed()) panel.collapse();
-    else if (open && panel.isCollapsed()) panel.expand();
+    const raf = requestAnimationFrame(() => {
+      if (!open && !panel.isCollapsed()) panel.collapse();
+      else if (open && panel.isCollapsed()) panel.expand();
+    });
+    return () => cancelAnimationFrame(raf);
   }, [open, panelRef]);
 
   // A user drag-righting the separator below minSize collapses the panel on

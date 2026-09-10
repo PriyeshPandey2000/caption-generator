@@ -416,8 +416,7 @@ Implement the four previously-"not committed" Phase 3 candidates in one pass (pl
 
 ### Open
 - **"Fit the seek bar of volume"** — a user request in this session refers to an attached screenshot this model could not read; no volume/seek-bar element exists in the app today. Awaiting clarification before acting (candidate readings: a video volume slider on the transport, or the timeline seek bar's layout).
-- Timeline word search/filter (long-video gap from the Hormozi session) remains.
-- The 2026-09-07 layout refactor (collapsible panels, floating toolbar, multi-point resize, timeline zoom) is committed to the working tree but still entirely uncommitted to git alongside this session's four features.
+- The 2026-09-07 layout refactor and this session's four features are now committed and pushed upstream on `feature/player-transport-controls` (PR #4): `dc36913` (four features + resizable sidebars) and `fa24c02` (CodeRabbit fixes). Timeline word search/filter shipped with the timeline work; its first-Enter-skip defect was fixed in the CodeRabbit pass.
 
 ### Decisions
 - **`playbackRate` is store view state** (not part of the undo document subset): speed is a playback preference, not an edit.
@@ -441,6 +440,40 @@ Review the CodeRabbit comments posted on PR #4, separate real bugs from noise, a
 
 ### Verified after fixes
 - `tsc --noEmit` clean; eslint still only the two pre-existing warnings.
+
+---
+
+## 2026-09-09 — Platform preview overlays + sidebar collapse crash fix
+
+### Session goal
+Fix the "Panel constraints not found" crash the user hit when the transcript panel first appeared, then ship the first pass of the platform preview the PRD (§1.3) specs.
+
+### "Panel constraints not found" runtime error — fixed
+- `ResizableSidebar`'s imperative sync effect ran *synchronously in the commit the sidebar mounts* — e.g. the transcript panel appearing for the first time right after a transcription completes — calling `panel.isCollapsed()/collapse()/expand()` before react-resizable-panels v4 has registered the panel's constraints with its `Group`. v4's `getPanelConstraints` throws `Panel constraints not found for Panel <id>` in that window, surfaced as a fatal Next.js dev-error overlay over the whole editor.
+- Fix: defer the sync one frame (`requestAnimationFrame`, cancelled in cleanup) — by then the Group's layout-phase registration (`registerPanel` → force-render `v()`) has landed and the panel accepts imperative calls. Root-caused against the installed v4 source (`node_modules/react-resizable-panels/dist/...`: registration and the imperative-handle assignments both live in the group's `useLayoutEffect`).
+- Browser re-test pending — dev server closed at session end so the user can test the collapse/rAF path themselves.
+
+### Platform preview (PRD §1.3 — follow-up: real apps, exact ratio)
+- **The video is now converted to the exact platform ratio** (`VideoPreview`): picking a platform center-crops the video (`object-cover`) to fill the 9:16 frame instead of letterboxing it — what you see is literally what the feed shows. No more "black bars either side" preview.
+- **Chrome rebuilt to mirror each real app's mobile UI** (`PlatformPreviewOverlay`), percentage-scaled: TikTok (Following | For You tabs + search, flat right action rail with avatar/follow, like/comment/bookmark/share counts, bottom caption + ♪ soundtrack, spinning vinyl disc), Reels (camera + "Reels" header, search/messenger top-right, action rail on the **left** like the real app, gradient follow avatar, bottom @creator block), Shorts (red Shorts wordmark, right rail with Subscribe avatar / 👍 45K / 👎 / comments / Share / Remix / ✕, bottom description + hashtags).
+- Wired into **both** surfaces: the demo canvas (`Editor`, toggle top-right) and the real video preview (`VideoPreview`, toggle top-left).
+- **Scoped out (still spec, per PRD §1.3):** magnetic caption-drag snapping to the inside edges of the active safe zone, and editable per-platform insets. The chrome + crop ship first so placement can be judged.
+
+### Demo "Drop a video" guard
+- Replacing the sample captions with a real video now asks for confirmation first (`window.confirm`), so a stray click can't blow away a styled demo.
+
+### Accuracy pass — exact icons, 9:16 export crop, proportional captions (same session)
+- **Chrome redrawn to current-UI fidelity** (`PlatformPreviewOverlay`, rewritten): engagement actions now use **filled** white glyphs like the shipping apps (liked heart, 3-dot comment bubble, star bookmark, paper-plane share, thumbs up/down); TikTok/Reels/Shorts each get the real rail side (Reels on the **left**, TikTok + Shorts on the **right**), real header chrome (Following/For You + search; camera + Reels + search/messenger; red Shorts wordmark), avatar follow/subscribe badges/buttons, and platform-accurate caption trays sized to 2026 safe-zone data (TikTok bottom ~25%, Reels bottom ~20%, Shorts bottom ~30% — the most aggressive).
+- **Export crops to the platform's 9:16** (`ExportPanel`): when a platform is selected the ffmpeg chain adds a center-crop (`crop='min(iw,trunc(ih*9/16/2)*2)':ih:'(iw-ow)/2':0`) after the 1280 scale cap, so the MP4 matches the preview frame instead of shipping letterboxed 16:9.
+- **Captions scale with the frame** — captions are now proportional to the rendered canvas, not fixed 1280-design px:
+  - Preview/demo: `VideoPreview` + the `Editor` demo measure the surface (`ResizeObserver`) and pass `W_portrait / W_full` as `CaptionOverlay.scaleFactor`; the scale multiplies real render props (font-size, letter-spacing, stroke, shadow, max-width) — **not** a wrapper transform, so drag/resize handles and word hit-testing stay glued to the on-screen text.
+  - Export: `FontSize` is proportional to effective output width (was hard-coded 24), clamped ~10–48px, so a 9:16 export keeps the caption the same fraction of the frame it has on the 1280 design surface.
+- `previewPlatform` moved to the zustand store (`src/core/types.ts` `PreviewPlatform`, view state outside undo) so the preview toggle, demo toggle and export share one selection; the component no longer holds its own copy.
+
+### Open / pending
+- All accuracy-pass work is **uncommitted** on `feature/platform-preview` (branch off merged `main` @ `50e3830`) — commit + push + PR once the browser re-test passes (server closed at session end per user request).
+- **"Fit the seek bar of volume"** still awaits user clarification.
+- PRD §1.3 safe-zone snapping + editable insets, and §2.5 caption-animation controls, remain spec-only. Snapping was recommended for drop; §2.5 stays Phase 2.
 
 ---
 
@@ -475,20 +508,24 @@ Review the CodeRabbit comments posted on PR #4, separate real bugs from noise, a
 | 25 | Async video restore is scoped to `project.id`; a New Project invalidates a pending restore | Otherwise a stale persisted blob reappears over a freshly started project | Committed `56f67d5` |
 | 26 | `setTranscription` preserves the existing `project.error` instead of clearing it | A video-persistence failure reported asynchronously must not be wiped by a later successful transcription | Committed `56f67d5` |
 | 27 | Video save-failure reports are gated on a `videoSaveGeneration` counter | A stale `persisted === false` from an old blob must not `setError` on newer state | Committed `56f67d5` |
-| 28 | Hero feature-card grid was briefly replaced with a placeholder, then restored | The `FeatureCard`/`FEATURE_ICONS` code was re-added after the user asked to keep the earlier features; placeholder removed | Working tree |
-| 29 | Transcript and Style live in separate collapsible side panels, not a shared bottom tab bar | Both need to be visible simultaneously; collapsing to a vertical tab keeps room for the canvas/timeline | Working tree |
-| 30 | Selected-caption toolbar and resize handles are positioned from measured `getBoundingClientRect` geometry, re-measured per `currentTime` tick | The row scales via paint-only `transform: scale()`, so CSS-anchor-based handles would drift from the rendered text; active-word pops change size continuously during playback | Working tree |
-| 31 | Resize is uniform `scale` driven by a direction-projected drag on 8 handles | A caption is text, not a box — no width/height; projecting drag onto each handle's outward vector makes grow/shrink intuitive from any corner or edge | Working tree |
-| 32 | Transcript sentence edits commit only when the word count is unchanged | Splitting/merging words would leave a word with no timestamp, which the data model can't represent — revert, don't corrupt timing | Working tree |
-| 33 | Preset list applies the full choreography bundle for shared names (Hormozi/MrBeast/Clean/Neon), plain style+motion otherwise | One list, not two; the richer bundle is strictly better for those names | Working tree |
-| 34 | Selection frames re-measure via `ResizeObserver` attached to the row/word element, not just dependency-driven effects | Style/text edits reflow geometry without touching the effect deps; observing the element catches every real geometry change (incl. edits), and the word frame now also re-measures on `layout.scale` | Working tree |
+| 28 | Hero feature-card grid was briefly replaced with a placeholder, then restored | The `FeatureCard`/`FEATURE_ICONS` code was re-added after the user asked to keep the earlier features; placeholder removed | Committed `8ba60d1` (PR #3) |
+| 29 | Transcript and Style live in separate collapsible side panels, not a shared bottom tab bar | Both need to be visible simultaneously; collapsing to a vertical tab keeps room for the canvas/timeline | Committed `8ba60d1` (PR #3) |
+| 30 | Selected-caption toolbar and resize handles are positioned from measured `getBoundingClientRect` geometry, re-measured per `currentTime` tick | The row scales via paint-only `transform: scale()`, so CSS-anchor-based handles would drift from the rendered text; active-word pops change size continuously during playback | Committed `8ba60d1` (PR #3) |
+| 31 | Resize is uniform `scale` driven by a direction-projected drag on 8 handles | A caption is text, not a box — no width/height; projecting drag onto each handle's outward vector makes grow/shrink intuitive from any corner or edge | Committed `8ba60d1` (PR #3) |
+| 32 | Transcript sentence edits commit only when the word count is unchanged | Splitting/merging words would leave a word with no timestamp, which the data model can't represent — revert, don't corrupt timing | Committed `8ba60d1` (PR #3) |
+| 33 | Preset list applies the full choreography bundle for shared names (Hormozi/MrBeast/Clean/Neon), plain style+motion otherwise | One list, not two; the richer bundle is strictly better for those names | Committed `8ba60d1` (PR #3) |
+| 34 | Selection frames re-measure via `ResizeObserver` attached to the row/word element, not just dependency-driven effects | Style/text edits reflow geometry without touching the effect deps; observing the element catches every real geometry change (incl. edits), and the word frame now also re-measures on `layout.scale` | Committed `8ba60d1` (PR #3) |
 | 35 | Caption Animation Controls spec'd as PRD §2.5 (7 types + live previews + per-word override + AI auto-selection) | Positioned as a major differentiator — competitors offer 2–3 generic animations with no preview | Spec |
-| 36 | `playbackRate` is store view state, excluded from undo history | Speed is a playback preference, not a document edit; scrubbing/playing already exclude view state | Working tree |
-| 37 | Timeline range-select is disambiguated by drag **start location**, not a mode toggle (playhead=scrub, background=range, word-block=click/edge-drag) | No selection-tool state to get stuck in; matches the PRD's resolved-but-unbuilt design; bulk-reposition deliberately scoped out of first pass | Working tree |
-| 38 | Custom presets stored globally under a dedicated `captionlab_custom_presets` key, applied via the existing `applyPreset` path | A preset should survive New Project and carry across videos, unlike the per-project autosave blob | Working tree |
-| 39 | Export is one split control (main button = MP4, chevron = SRT/VTT/MP4) | The primary action stays the obvious default; the header stops advertising three export "buttons" at once | Working tree |
-| 40 | Transport skip buttons re-read the store's `currentTime`, never the render closure | Two rapid skips in one frame otherwise both compute from the same stale time and cancel out | Working tree |
-| 41 | `react-resizable-panels` v4 for resizable sidebars (`Group`/`Panel`/`Separator` + `panelRef` imperative API) | Stable, React 19 peer-supported, the de-facto panel library (Vercel-style editors); a hand-rolled drag-width would've been ~150 lines of pointer/uuid math | Working tree |
-| 42 | Sidebar width is **not** persisted (no `useDefaultLayout`); open/closed stays editor state, mirrored imperatively (`collapse()`/`expand()` in an effect, drag-collapses folded in via `onResize` + `isCollapsed()`) | v4 has no controlled `collapsed` prop; predictable defaults each load beat remembered-layout edge cases (drag-to-zero restoring "open" on reload) | Working tree |
-| 43 | The drag separator doubles as the collapsed reopen tab (thin pill when open → `CollapsedSidebarTab` inside the Separator when closed) | One element serves drag-resize and show/hide; the old `CollapsedSidebarTab` is reused inside the Separator | Working tree |
-| 44 | Search navigation is query-scoped: a `visitedMatchRef` makes the first Enter jump to the already-highlighted match, then Enter/Shift+Enter cycle next/prev; reset on query change/Escape/clear | Otherwise the first Enter skips the first match — the ring's `1/N` target is only reachable backwards via wrap | Working tree |
+| 36 | `playbackRate` is store view state, excluded from undo history | Speed is a playback preference, not a document edit; scrubbing/playing already exclude view state | Committed `dc36913` (PR #4) |
+| 37 | Timeline range-select is disambiguated by drag **start location**, not a mode toggle (playhead=scrub, background=range, word-block=click/edge-drag) | No selection-tool state to get stuck in; matches the PRD's resolved-but-unbuilt design; bulk-reposition deliberately scoped out of first pass | Committed `dc36913` (PR #4) |
+| 38 | Custom presets stored globally under a dedicated `captionlab_custom_presets` key, applied via the existing `applyPreset` path | A preset should survive New Project and carry across videos, unlike the per-project autosave blob | Committed `dc36913` (PR #4) |
+| 39 | Export is one split control (main button = MP4, chevron = SRT/VTT/MP4) | The primary action stays the obvious default; the header stops advertising three export "buttons" at once | Committed `dc36913` (PR #4) |
+| 40 | Transport skip buttons re-read the store's `currentTime`, never the render closure | Two rapid skips in one frame otherwise both compute from the same stale time and cancel out | Committed `dc36913` (PR #4) |
+| 41 | `react-resizable-panels` v4 for resizable sidebars (`Group`/`Panel`/`Separator` + `panelRef` imperative API) | Stable, React 19 peer-supported, the de-facto panel library (Vercel-style editors); a hand-rolled drag-width would've been ~150 lines of pointer/uuid math | Committed `dc36913` (PR #4) |
+| 42 | Sidebar width is **not** persisted (no `useDefaultLayout`); open/closed stays editor state, mirrored imperatively (`collapse()`/`expand()` in an effect, drag-collapses folded in via `onResize` + `isCollapsed()`) | v4 has no controlled `collapsed` prop; predictable defaults each load beat remembered-layout edge cases (drag-to-zero restoring "open" on reload) | Committed `dc36913` (PR #4) |
+| 43 | The drag separator doubles as the collapsed reopen tab (thin pill when open → `CollapsedSidebarTab` inside the Separator when closed) | One element serves drag-resize and show/hide; the old `CollapsedSidebarTab` is reused inside the Separator | Committed `dc36913` (PR #4) |
+| 44 | Search navigation is query-scoped: a `visitedMatchRef` makes the first Enter jump to the already-highlighted match, then Enter/Shift+Enter cycle next/prev; reset on query change/Escape/clear | Otherwise the first Enter skips the first match — the ring's `1/N` target is only reachable backwards via wrap | Committed `fa24c02` (PR #4) |
+| 45 | Platform preview narrows the canvas to the platform's exact 9:16 ratio, **center-crops the video to fill it** (`object-cover`), and mirrors each real app's mobile chrome (TikTok tabs + flat right rail + spinning disc; Reels rail-LEFT + Reels header; Shorts wordmark + right rail + Remix) — percentage-based mock furniture, not a pixel copy | What you see is what the feed shows; a letterboxed video inside a 9:16 frame defeated the point (user-reported gap) — revealed-chrome layouts shift between releases/devices | Working tree |
+| 46 | Imperative sidebar collapse/expand is deferred one frame (`requestAnimationFrame`, cancelled in cleanup) instead of running in the mount commit | v4's `isCollapsed()`/`collapse()`/`expand()` throw "Panel constraints not found" if called before the Group registers the panel's constraints with it | Working tree |
+| 47 | Captions scale with the rendered frame: preview/demo pass `W_portrait / W_full` (`ResizeObserver`) into `CaptionOverlay.scaleFactor` applied to real render props (font-size, letter-spacing, stroke, shadow, max-width) — not a wrapper transform; export burns `FontSize` proportional to effective output width (clamped ~10–48) after the platform 9:16 center-crop | Fixed 1280-design px overflows the narrower 9:16 canvas (typographic-point scaling is proportional by definition); a wrapper scale would leave selection frames and hit-testing at unscaled geometry; libass `FontSize` lives in output pixels so it must track output width | Working tree |
+| 48 | `previewPlatform` is store view state outside undo (type in `src/core/types.ts`), shared by the preview toggle, demo toggle and export | One selection drives chrome, crop and caption scale — component-local copies would drift | Working tree |

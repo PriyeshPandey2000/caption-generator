@@ -11,6 +11,7 @@ import {
   SfxPackId,
   SfxName,
   Composition,
+  PreviewPlatform,
 } from "@/core/types";
 import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
@@ -46,9 +47,11 @@ interface EditorState {
   selectedCaptionGroupId: string | null;
   videoFile: File | null;
   videoUrl: string | null;
+  previewPlatform: PreviewPlatform;
 
   setVideoFile: (file: File) => void;
   setRestoredVideo: (file: File, url: string) => void;
+  setPreviewPlatform: (platform: PreviewPlatform) => void;
   setTranscription: (result: TranscriptionResult) => void;
   setIsTranscribing: (v: boolean) => void;
   setError: (error: string | null) => void;
@@ -223,6 +226,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   selectedCaptionGroupId: null,
   videoFile: null,
   videoUrl: null,
+  previewPlatform: "none",
   groupLayouts: {},
   canUndo: false,
   canRedo: false,
@@ -254,6 +258,8 @@ export const useEditorStore = create<EditorState>((set) => ({
     if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
     set({ videoFile: file, videoUrl: url });
   },
+
+  setPreviewPlatform: (platform) => set({ previewPlatform: platform }),
 
   setTranscription: (result) => {
     set((s) => ({
