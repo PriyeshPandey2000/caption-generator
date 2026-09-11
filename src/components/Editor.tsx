@@ -135,7 +135,7 @@ export default function Editor() {
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [isDemoMode]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

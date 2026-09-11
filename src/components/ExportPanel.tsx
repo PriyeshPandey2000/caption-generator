@@ -134,7 +134,7 @@ export default function ExportPanel() {
       const needsScale = meta.width > MAX_EXPORT_WIDTH;
       const scaleFilter = needsScale ? `scale='min(${MAX_EXPORT_WIDTH},iw)':-2,` : "";
 
-      const cropToPlatform = useEditorStore.getState().previewPlatform !== "none";
+      const cropToPlatform = state.previewPlatform !== "none";
       // Center-crop to the active platform's 9:16 feed frame so the exported
       // file matches what the preview's `object-cover` 9:16 box shows. Crop
       // whichever dimension the source over-provides relative to 9:16: trim
