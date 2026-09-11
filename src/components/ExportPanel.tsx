@@ -135,24 +135,33 @@ export default function ExportPanel() {
       const scaleFilter = needsScale ? `scale='min(${MAX_EXPORT_WIDTH},iw)':-2,` : "";
 
       const cropToPlatform = useEditorStore.getState().previewPlatform !== "none";
-      // Center-crop to the active platform's 9:16 feed frame (keep full
-      // height, trim width to 9:16, even output width for yuv420p) so the
-      // exported file matches what the preview chrome shows instead of
-      // shipping a letterboxed 16:9 file.
+      // Center-crop to the active platform's 9:16 feed frame so the exported
+      // file matches what the preview's `object-cover` 9:16 box shows. Crop
+      // whichever dimension the source over-provides relative to 9:16: trim
+      // width for sources wider than 9:16 (the common case), trim height for
+      // sources already narrower/taller than 9:16 (e.g. a 720x1600 capture) —
+      // an ffmpeg `if()` expression picks the branch since the source aspect
+      // ratio isn't known until runtime. Always-keep-height was a bug: it
+      // left narrower-than-9:16 sources completely uncropped.
       const cropFilter = cropToPlatform
-        ? `crop='min(iw,trunc(ih*9/16/2)*2)':ih:'(iw-ow)/2':0,`
+        ? `crop=w='if(gt(iw/ih,9/16),trunc(ih*9/16/2)*2,iw)':h='if(gt(iw/ih,9/16),ih,trunc(iw*16/9/2)*2)':x='(iw-ow)/2':y='(ih-oh)/2',`
         : "";
 
-      // Effective output width: the fixed 1280 cap (or native), then the
-      // platform crop. Caption FontSize scales with it — libass sizes are in
-      // output pixels, so scaling keeps the caption the same share of the
-      // frame it occupies on the 1280-wide design surface instead of
-      // overflowing (or shrinking) when the canvas does.
+      // Effective output width/height: the fixed 1280 cap (or native), then
+      // the platform crop applied to whichever dimension it affects — same
+      // branch logic as the ffmpeg filter above, so fontPx (libass output
+      // pixels) matches the frame the caption actually renders into.
       let outW = needsScale ? Math.min(MAX_EXPORT_WIDTH, meta.width) : meta.width;
-      const outH = needsScale
+      let outH = needsScale
         ? Math.round((meta.height * outW) / meta.width / 2) * 2
         : meta.height;
-      if (cropToPlatform) outW = Math.min(outW, Math.floor((outH * 9) / 32) * 2);
+      if (cropToPlatform) {
+        if (outW / outH > 9 / 16) {
+          outW = Math.floor((outH * 9) / 32) * 2;
+        } else {
+          outH = Math.floor((outW * 8) / 9) * 2;
+        }
+      }
       const fontPx = Math.max(10, Math.min(48, Math.round(24 * (outW / MAX_EXPORT_WIDTH))))
 
       // Compose the audio filtergraph: delay/scale/pitch each SFX into its

@@ -257,8 +257,8 @@ export default function CaptionOverlay({
             ...(hasBg
               ? {
                   backgroundColor: groupBg,
-                  padding: `${globalStyle.style.backgroundPadding ?? 6}px ${(globalStyle.style.backgroundPadding ?? 6) * 2}px`,
-                  borderRadius: `${globalStyle.style.backgroundBorderRadius ?? 8}px`,
+                  padding: `${(globalStyle.style.backgroundPadding ?? 6) * scaleFactor}px ${(globalStyle.style.backgroundPadding ?? 6) * 2 * scaleFactor}px`,
+                  borderRadius: `${(globalStyle.style.backgroundBorderRadius ?? 8) * scaleFactor}px`,
                   boxShadow: "0 4px 24px rgba(0,0,0,0.35)",
                 }
               : {}),
@@ -361,13 +361,13 @@ function WordSpan({
     animStyle.fontSize = `${(baseFontSize * (emphasis.scaleTo ?? 140)) / 100}px`;
     if (emphasis.color) animStyle.color = emphasis.color;
     if (emphasis.glowRadius) {
-      animStyle.textShadow = `0 0 ${emphasis.glowRadius}px ${emphasis.color || "#FFD700"}`;
+      animStyle.textShadow = `0 0 ${emphasis.glowRadius * scaleFactor}px ${emphasis.color || "#FFD700"}`;
     }
   } else if (activeAnim && activeAnim.type === "scale" && isSpokenNow) {
     animStyle.fontSize = `${(baseFontSize * (activeAnim.scaleTo ?? 125)) / 100}px`;
     if (activeAnim.color) animStyle.color = activeAnim.color;
     if (activeAnim.glowRadius) {
-      animStyle.textShadow = `0 0 ${activeAnim.glowRadius}px ${activeAnim.color || "#FFD700"}`;
+      animStyle.textShadow = `0 0 ${activeAnim.glowRadius * scaleFactor}px ${activeAnim.color || "#FFD700"}`;
     }
   }
 
