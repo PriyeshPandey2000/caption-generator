@@ -134,6 +134,36 @@ export default function ExportPanel() {
       const needsScale = meta.width > MAX_EXPORT_WIDTH;
       const scaleFilter = needsScale ? `scale='min(${MAX_EXPORT_WIDTH},iw)':-2,` : "";
 
+      const cropToPlatform = state.previewPlatform !== "none";
+      // Center-crop to the active platform's 9:16 feed frame so the exported
+      // file matches what the preview's `object-cover` 9:16 box shows. Crop
+      // whichever dimension the source over-provides relative to 9:16: trim
+      // width for sources wider than 9:16 (the common case), trim height for
+      // sources already narrower/taller than 9:16 (e.g. a 720x1600 capture) —
+      // an ffmpeg `if()` expression picks the branch since the source aspect
+      // ratio isn't known until runtime. Always-keep-height was a bug: it
+      // left narrower-than-9:16 sources completely uncropped.
+      const cropFilter = cropToPlatform
+        ? `crop=w='if(gt(iw/ih,9/16),trunc(ih*9/16/2)*2,iw)':h='if(gt(iw/ih,9/16),ih,trunc(iw*16/9/2)*2)':x='(iw-ow)/2':y='(ih-oh)/2',`
+        : "";
+
+      // Effective output width/height: the fixed 1280 cap (or native), then
+      // the platform crop applied to whichever dimension it affects — same
+      // branch logic as the ffmpeg filter above, so fontPx (libass output
+      // pixels) matches the frame the caption actually renders into.
+      let outW = needsScale ? Math.min(MAX_EXPORT_WIDTH, meta.width) : meta.width;
+      let outH = needsScale
+        ? Math.round((meta.height * outW) / meta.width / 2) * 2
+        : meta.height;
+      if (cropToPlatform) {
+        if (outW / outH > 9 / 16) {
+          outW = Math.floor((outH * 9) / 32) * 2;
+        } else {
+          outH = Math.floor((outW * 8) / 9) * 2;
+        }
+      }
+      const fontPx = Math.max(10, Math.min(48, Math.round(24 * (outW / MAX_EXPORT_WIDTH))))
+
       // Compose the audio filtergraph: delay/scale/pitch each SFX into its
       // video-time slot, then amix them over the video's own stereo audio.
       let audioFilter: string | null = null;
@@ -147,7 +177,7 @@ export default function ExportPanel() {
         "-i", "input.mp4",
         ...sfxInputs,
         "-t", String(MAX_EXPORT_DURATION_SEC),
-        "-vf", `${scaleFilter}subtitles=captions.srt:force_style='FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2'`,
+        "-vf", `${scaleFilter}${cropFilter}subtitles=captions.srt:force_style='FontSize=${fontPx},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2'`,
       ];
       if (audioFilter) {
         args.push("-filter_complex", audioFilter, "-map", "0:v", "-map", "[aout]");
@@ -162,7 +192,15 @@ export default function ExportPanel() {
         "output.mp4"
       );
 
-      setProgress(sfxOn ? "Mixing sounds & burning captions..." : "Burning in captions...");
+      setProgress(
+        sfxOn
+          ? cropToPlatform
+            ? "Cropping 9:16, mixing sounds & burning captions..."
+            : "Mixing sounds & burning captions..."
+          : cropToPlatform
+            ? "Cropping 9:16 & burning captions..."
+            : "Burning in captions..."
+      );
       await ffmpeg.exec(args);
 
       setProgress("Downloading...");

@@ -110,6 +110,8 @@ export interface VideoEffects {
 export type SfxDensity = "off" | "subtle" | "balanced" | "energetic" | "chaotic";
 export type SfxVolume = "quiet" | "balanced" | "aggressive";
 export type SfxPackId = "creator" | "cinematic" | "clean" | "meme";
+/** Target short-form platform whose feed chrome + 9:16 crop the preview (and export) mirror. */
+export type PreviewPlatform = "none" | "tiktok" | "reels" | "shorts";
 export type SfxRole = "emphasis" | "punchline" | "cameraPunch" | "transition";
 export type SfxName =
   | "whoosh"

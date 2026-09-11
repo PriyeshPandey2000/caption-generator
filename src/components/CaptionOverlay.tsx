@@ -13,11 +13,19 @@ const MARQUEE_THRESHOLD = 4;
 
 export default function CaptionOverlay({
   onBackgroundClick,
+  scaleFactor = 1,
 }: {
   /** Fired on a plain click (no drag) on empty overlay space — lets the
    * host (VideoPreview) keep its click-to-play/pause behavior even though
    * this overlay now captures pointer events for marquee selection. */
   onBackgroundClick?: () => void;
+  /** Size multiplier applied to everything measured in caption-design px so
+   * captions stay proportionally sized when the canvas is narrower than the
+   * 1280-wide design surface (e.g. the 9:16 platform crop). Applied to real
+   * rendered props (font-size, letter-spacing, stroke, shadows, max-width),
+   * not a wrapper transform — a transform would leave the selection frame,
+   * drag handles and word hit-testing at unscaled geometry. */
+  scaleFactor?: number;
 }) {
   const transcription = useEditorStore((s) => s.project.transcription);
   const globalStyle = useEditorStore((s) => s.project.globalStyle);
@@ -216,7 +224,7 @@ export default function CaptionOverlay({
           top: `${yPct}%`,
           transform: `translate(-50%, -50%) translate(${layout.x}px, ${layout.y}px)`,
           width: "max-content",
-          maxWidth: `min(${maxW}px, 92%)`,
+          maxWidth: `min(${maxW * scaleFactor}px, 92%)`,
         }}
       >
         <div
@@ -249,8 +257,8 @@ export default function CaptionOverlay({
             ...(hasBg
               ? {
                   backgroundColor: groupBg,
-                  padding: `${globalStyle.style.backgroundPadding ?? 6}px ${(globalStyle.style.backgroundPadding ?? 6) * 2}px`,
-                  borderRadius: `${globalStyle.style.backgroundBorderRadius ?? 8}px`,
+                  padding: `${(globalStyle.style.backgroundPadding ?? 6) * scaleFactor}px ${(globalStyle.style.backgroundPadding ?? 6) * 2 * scaleFactor}px`,
+                  borderRadius: `${(globalStyle.style.backgroundBorderRadius ?? 8) * scaleFactor}px`,
                   boxShadow: "0 4px 24px rgba(0,0,0,0.35)",
                 }
               : {}),
@@ -260,6 +268,7 @@ export default function CaptionOverlay({
             <WordSpan
               key={word.id}
               word={word}
+              scaleFactor={scaleFactor}
               isSelected={selectedWordIds.includes(word.id) && selectedWordIds.length > 1}
               onSelect={(e) => selectWord(word.id, e.metaKey || e.ctrlKey)}
             />
@@ -304,17 +313,19 @@ function WordSpan({
   word,
   isSelected,
   onSelect,
+  scaleFactor = 1,
 }: {
   word: Word;
   isSelected: boolean;
   onSelect: (e: React.MouseEvent) => void;
+  scaleFactor: number;
 }) {
   const globalStyle = useEditorStore((s) => s.project.globalStyle);
   const speakerStyles = useEditorStore((s) => s.project.speakerStyles);
   const currentTime = useEditorStore((s) => s.currentTime);
 
   const style = resolveWordStyle(word, speakerStyles, globalStyle);
-  const baseFontSize = style.fontSize ?? 48;
+  const baseFontSize = (style.fontSize ?? 48) * scaleFactor;
 
   const entrance = word.animation?.entrance || globalStyle.motion.entrance;
   const activeAnim = word.animation?.active || globalStyle.motion.active;
@@ -350,13 +361,13 @@ function WordSpan({
     animStyle.fontSize = `${(baseFontSize * (emphasis.scaleTo ?? 140)) / 100}px`;
     if (emphasis.color) animStyle.color = emphasis.color;
     if (emphasis.glowRadius) {
-      animStyle.textShadow = `0 0 ${emphasis.glowRadius}px ${emphasis.color || "#FFD700"}`;
+      animStyle.textShadow = `0 0 ${emphasis.glowRadius * scaleFactor}px ${emphasis.color || "#FFD700"}`;
     }
   } else if (activeAnim && activeAnim.type === "scale" && isSpokenNow) {
     animStyle.fontSize = `${(baseFontSize * (activeAnim.scaleTo ?? 125)) / 100}px`;
     if (activeAnim.color) animStyle.color = activeAnim.color;
     if (activeAnim.glowRadius) {
-      animStyle.textShadow = `0 0 ${activeAnim.glowRadius}px ${activeAnim.color || "#FFD700"}`;
+      animStyle.textShadow = `0 0 ${activeAnim.glowRadius * scaleFactor}px ${activeAnim.color || "#FFD700"}`;
     }
   }
 
@@ -392,16 +403,16 @@ function WordSpan({
       inputClassName="ring-2 ring-[#00FF66] rounded px-0.5"
       style={{
         fontFamily: style.fontFamily,
-        fontSize: `${style.fontSize}px`,
+        fontSize: `${(style.fontSize ?? 48) * scaleFactor}px`,
         color: style.color,
         fontWeight: style.fontWeight,
-        letterSpacing: `${style.letterSpacing}px`,
+        letterSpacing: `${(style.letterSpacing ?? 0) * scaleFactor}px`,
         textTransform: style.textTransform,
         WebkitTextStroke: style.strokeWidth
-          ? `${style.strokeWidth}px ${style.strokeColor}`
+          ? `${style.strokeWidth * scaleFactor}px ${style.strokeColor}`
           : undefined,
         textShadow: style.shadowColor
-          ? `${style.shadowOffsetX || 0}px ${style.shadowOffsetY || 0}px ${style.shadowBlur || 0}px ${style.shadowColor}`
+          ? `${(style.shadowOffsetX || 0) * scaleFactor}px ${(style.shadowOffsetY || 0) * scaleFactor}px ${(style.shadowBlur || 0) * scaleFactor}px ${style.shadowColor}`
           : undefined,
         opacity: style.opacity,
         ...animStyle,
