@@ -4,6 +4,7 @@ import {
   WordStyle,
   WordMotion,
   Composition,
+  DictionaryEntry,
 } from "@/core/types";
 
 const STORAGE_KEY = "captionlab_project_v1";
@@ -20,6 +21,7 @@ export interface PersistedProject {
   composition?: Composition;
   speakerStyles: Record<string, Partial<WordStyle>>;
   speakerMotions: Record<string, Partial<WordMotion>>;
+  dictionary?: DictionaryEntry[];
   groupLayouts: Record<string, PersistedGroupLayout>;
   savedAt: number;
 }

@@ -9,6 +9,7 @@ import {
 } from "react-resizable-panels";
 import { useEditorStore } from "@/store/editor-store";
 import { parseSegmentsToWords, groupWordsIntoCaptions } from "@/core/captions";
+import { buildWhisperPrompt, applyDictionary } from "@/core/dictionary";
 import {
   loadProjectFromStorage,
   clearProjectFromStorage,
@@ -61,6 +62,7 @@ export default function Editor() {
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const setVideoFile = useEditorStore((s) => s.setVideoFile);
   const transcription = useEditorStore((s) => s.project.transcription);
+  const dictionary = useEditorStore((s) => s.project.dictionary);
   const isTranscribing = useEditorStore((s) => s.project.isTranscribing);
   const error = useEditorStore((s) => s.project.error);
   const setTranscription = useEditorStore((s) => s.setTranscription);
@@ -189,6 +191,8 @@ export default function Editor() {
         const formData = new FormData();
         formData.append("file", file);
         formData.append("apiKey", apiKey);
+        const dictionaryPrompt = buildWhisperPrompt(dictionary);
+        if (dictionaryPrompt) formData.append("prompt", dictionaryPrompt);
 
         const res = await fetch("/api/transcribe", {
           method: "POST",
@@ -201,7 +205,10 @@ export default function Editor() {
         }
 
         const data = await res.json();
-        const { words, parsedSegments } = parseSegmentsToWords(data.segments || []);
+        const { words: rawWords, parsedSegments } = parseSegmentsToWords(data.segments || []);
+        // The prompt above only biases Whisper's recognition — this is the
+        // guaranteed fix for whatever it still gets wrong.
+        const words = applyDictionary(rawWords, dictionary);
         const captionGroups = groupWordsIntoCaptions(
           words,
           globalStyle.maxWordsPerGroup
@@ -237,6 +244,7 @@ export default function Editor() {
     },
     [
       apiKey,
+      dictionary,
       setVideoFile,
       setTranscription,
       setIsTranscribing,

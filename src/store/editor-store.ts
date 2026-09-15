@@ -12,10 +12,12 @@ import {
   SfxName,
   Composition,
   PreviewPlatform,
+  DictionaryEntry,
 } from "@/core/types";
 import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
-import { createDemoTranscription } from "@/core/demo";
+import { isSingleToken } from "@/core/dictionary";
+import { createDemoTranscription, DEMO_VIDEO_URL } from "@/core/demo";
 import { ChoreographyBundle, highlightEmphasisWords } from "@/core/choreography";
 import {
   saveProjectToStorage,
@@ -72,6 +74,8 @@ interface EditorState {
   updateSpeakerMotion: (speaker: string, motion: Partial<WordMotion>) => void;
   resetWordStyle: (wordId: string) => void;
   resetWordMotion: (wordId: string) => void;
+  addDictionaryEntry: (from: string, to: string) => void;
+  removeDictionaryEntry: (id: string) => void;
   loadDemo: () => void;
   applyChoreography: (bundle: ChoreographyBundle) => void;
   groupLayouts: Record<string, GroupLayout>;
@@ -99,6 +103,7 @@ interface EditorState {
     composition?: Composition;
     speakerStyles: Record<string, Partial<WordStyle>>;
     speakerMotions: Record<string, Partial<WordMotion>>;
+    dictionary?: DictionaryEntry[];
     groupLayouts: Record<string, GroupLayout>;
   }) => void;
   newProject: () => void;
@@ -117,6 +122,7 @@ const initialState: Project = {
   composition: { sfxEvents: [] },
   speakerStyles: {},
   speakerMotions: {},
+  dictionary: [],
   isTranscribing: false,
   error: null,
 };
@@ -426,14 +432,65 @@ export const useEditorStore = create<EditorState>((set) => ({
       };
     }),
 
-  loadDemo: () =>
+  addDictionaryEntry: (from, to) =>
+    set((s) => {
+      const trimmedFrom = from.trim();
+      const trimmedTo = to.trim();
+      // A dictionary correction maps one mis-heard token to its replacement.
+      // Multi-word values are not representable in the word model (a Word is a
+      // single token with one timestamp), so reject them here.
+      if (!isSingleToken(trimmedFrom) || !isSingleToken(trimmedTo)) return s;
+      return {
+        project: {
+          ...s.project,
+          dictionary: [
+            ...s.project.dictionary,
+            { id: uuid(), from: trimmedFrom, to: trimmedTo },
+          ],
+        },
+      };
+    }),
+
+  removeDictionaryEntry: (id) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        dictionary: s.project.dictionary.filter((e) => e.id !== id),
+      },
+    })),
+
+  loadDemo: () => {
+    const prevUrl = useEditorStore.getState().videoUrl;
+    if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+    // The demo plays a static /samples URL, not an uploaded blob — but a
+    // previously uploaded video may still be in IndexedDB and would otherwise
+    // resurrect on the next reload (Editor restores that blob when videoFile
+    // is null, clobbering DEMO_VIDEO_URL with a stale upload). Bump the save
+    // generation first so an in-flight save result for the old upload can't
+    // report a stale failure against demo state, then queue the clear behind
+    // it — enqueueVideoOp serializes, so the clear can't race a pending save.
+    ++videoSaveGeneration;
     set((s) => ({
       project: {
         ...s.project,
         transcription: createDemoTranscription(),
         error: null,
       },
-    })),
+      videoFile: null,
+      videoUrl: DEMO_VIDEO_URL,
+    }));
+    if (typeof window !== "undefined") {
+      enqueueVideoOp(clearVideoFromStorage).then((cleared) => {
+        if (!cleared) {
+          useEditorStore
+            .getState()
+            .setError(
+              "Couldn't fully clear your previous video from local storage. If it reappears after a refresh, it's a browser-storage limitation."
+            );
+        }
+      });
+    }
+  },
 
   applyChoreography: (bundle) =>
     set((s) => {
@@ -1038,6 +1095,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         },
         speakerStyles: data.speakerStyles,
         speakerMotions: data.speakerMotions,
+        dictionary: data.dictionary ?? [],
         isTranscribing: false,
         error: null,
       },
@@ -1083,6 +1141,7 @@ export const useEditorStore = create<EditorState>((set) => ({
           composition: { sfxEvents: [], sfxOverrides: {} },
           speakerStyles: {},
           speakerMotions: {},
+          dictionary: [],
           isTranscribing: false,
           error: null,
         },
@@ -1122,6 +1181,7 @@ if (typeof window !== "undefined") {
         composition: s.project.composition,
         speakerStyles: s.project.speakerStyles,
         speakerMotions: s.project.speakerMotions,
+        dictionary: s.project.dictionary,
         groupLayouts: s.groupLayouts,
       });
     }, 300);
