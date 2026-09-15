@@ -141,3 +141,60 @@ export async function clearVideoFromStorage(): Promise<boolean> {
     return false;
   }
 }
+
+// --- Background image persistence (IndexedDB) ---------------------
+//
+// A background image picked in the editor is exposed to the compositor as an
+// object URL, but object URLs are per-document and die with the page. The bytes
+// themselves are stored here (same DB/store as the video, different key) so a
+// fresh object URL can be recreated on restore. The video's "current" key and
+// the background image's "background-image" key never collide.
+
+const BACKGROUND_KEY = "background-image";
+
+export interface PersistedBackgroundImage {
+  blob: Blob;
+}
+
+// Returns true when the image was persisted, false when it could not be saved
+// (no IndexedDB, quota exceeded, private-mode blocking, etc.). Callers surface
+// a warning so users aren't surprised when the background vanishes after a
+// refresh.
+export async function saveBackgroundImageToStorage(image: Blob): Promise<boolean> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return false;
+  try {
+    await withStore("readwrite", (store) =>
+      store.put({ blob: image }, BACKGROUND_KEY)
+    );
+    return true;
+  } catch (err) {
+    console.warn("CaptionLab: could not persist background image to IndexedDB", err);
+    return false;
+  }
+}
+
+export async function loadBackgroundImageFromStorage(): Promise<Blob | null> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return null;
+  try {
+    const image = await withStore<PersistedBackgroundImage | undefined>(
+      "readonly",
+      (store) => store.get(BACKGROUND_KEY)
+    );
+    return image?.blob ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Returns true when the image was removed, false when deletion failed. Cleared
+// alongside the video on "New Project" so a stale image can't resurrect.
+export async function clearBackgroundImageFromStorage(): Promise<boolean> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return false;
+  try {
+    await withStore("readwrite", (store) => store.delete(BACKGROUND_KEY));
+    return true;
+  } catch (err) {
+    console.warn("CaptionLab: could not remove background image from IndexedDB", err);
+    return false;
+  }
+}

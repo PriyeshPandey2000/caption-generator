@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { BackgroundMode } from "@/core/types";
 
@@ -15,18 +15,12 @@ export default function BackgroundPanel() {
   const background = useEditorStore((s) => s.project.globalStyle.background);
   const setBackgroundMode = useEditorStore((s) => s.setBackgroundMode);
   const setBackgroundColor = useEditorStore((s) => s.setBackgroundColor);
-  const setBackgroundImage = useEditorStore((s) => s.setBackgroundImage);
+  const setBackgroundImageFile = useEditorStore((s) => s.setBackgroundImageFile);
   const setBackgroundBlurAmount = useEditorStore((s) => s.setBackgroundBlurAmount);
-  const prevImageUrlRef = useRef<string | null>(null);
 
   const handleImageFile = useCallback(
-    (file: File) => {
-      if (prevImageUrlRef.current) URL.revokeObjectURL(prevImageUrlRef.current);
-      const url = URL.createObjectURL(file);
-      prevImageUrlRef.current = url;
-      setBackgroundImage(url);
-    },
-    [setBackgroundImage]
+    (file: File) => setBackgroundImageFile(file),
+    [setBackgroundImageFile]
   );
 
   return (

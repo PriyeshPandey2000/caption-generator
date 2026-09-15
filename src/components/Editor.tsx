@@ -14,6 +14,7 @@ import {
   loadProjectFromStorage,
   clearProjectFromStorage,
   loadVideoFromStorage,
+  loadBackgroundImageFromStorage,
 } from "@/core/persistence";
 import UploadZone from "@/components/UploadZone";
 import VideoPreview from "@/components/VideoPreview";
@@ -118,6 +119,26 @@ export default function Editor() {
       } else if (saved?.demoMode) {
         useEditorStore.getState().loadDemo();
       }
+    });
+    // The persisted image URL was a blob: URL (safety-netted to mode "none" by
+    // restorePersisted); the actual bytes live in IndexedDB. Recreate a fresh
+    // object URL so the image background survives the reload.
+    const bg = saved?.globalStyle?.background;
+    const restoreImage =
+      bg?.mode === "image" &&
+      typeof bg.imageUrl === "string" &&
+      bg.imageUrl.startsWith("blob:");
+    loadBackgroundImageFromStorage().then((blob) => {
+      if (cancelled) return;
+      if (useEditorStore.getState().project.id !== loadProjectId) return;
+      if (!restoreImage || !blob) return;
+      const current = useEditorStore.getState().project.globalStyle.background;
+      // Only fill the gap the dead blob left behind: an in-session re-pick or
+      // a manual mode change after load wins over the persisted image.
+      if (current.mode !== "none" || current.imageUrl) return;
+      const url = URL.createObjectURL(blob);
+      useEditorStore.getState().setBackgroundImage(url);
+      useEditorStore.getState().setBackgroundMode("image");
     });
     return () => {
       cancelled = true;

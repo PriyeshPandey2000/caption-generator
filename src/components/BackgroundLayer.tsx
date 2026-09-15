@@ -31,6 +31,7 @@ export default function BackgroundLayer({
   const rvmApiRef = useRef<typeof RvmApi | null>(null);
   const rvmRef = useRef<RvmSegmenter | null>(null);
   const lastCapturedTimeRef = useRef<number | null>(null);
+  const lastDrawnTimeRef = useRef<number | null>(null);
   const rvmBusyRef = useRef(false);
   const rvmErrorRef = useRef(false);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
@@ -108,6 +109,9 @@ export default function BackgroundLayer({
     let running = true;
 
     const getVideo = () => videoRef.current;
+    // A fresh effect run (background change, play-state change, re-mount)
+    // invalidates anything we composited under the previous configuration.
+    lastDrawnTimeRef.current = null;
 
     // Shares the mask->background->person composite between both backends.
     // MediaPipe hands it the feathered mask, RVM the raw alpha matte.
@@ -186,6 +190,7 @@ export default function BackgroundLayer({
         const seg = await api.segmentFrameRvm(rvm, video);
         if (!seg) return;
         drawMaskTail(ctx, video, w, h, seg.mask, seg.width, seg.height);
+        lastDrawnTimeRef.current = t;
       } catch (err) {
         rvmErrorRef.current = true;
         console.error("RVM segmentation failed — disabling RVM:", err);
@@ -200,7 +205,13 @@ export default function BackgroundLayer({
 
       if (background.mode === "none") return;
       const video = getVideo();
-      if (!video || !isPlaying || video.paused) return;
+      if (!video) return;
+      const paused = !isPlaying || video.paused;
+      const frameTime = video.currentTime;
+      // While paused (scrubbing, seek, fresh selection) recomposite only when
+      // the playhead actually moved — the loop keeps running, but drawing the
+      // same frame on every RAF tick would be free model work for nothing.
+      if (paused && lastDrawnTimeRef.current === frameTime) return;
       const segmenter = segmenterRef.current;
       const rvm = rvmRef.current;
       if (!segmenter && !rvm) return;
@@ -230,6 +241,7 @@ export default function BackgroundLayer({
       const feathered = featherMask(smoothed, mw, mh, 2);
 
       drawMaskTail(ctx, video, w, h, feathered, mw, mh);
+      lastDrawnTimeRef.current = frameTime;
     };
 
     rafId = requestAnimationFrame(tick);
