@@ -5,6 +5,7 @@ import { useEditorStore } from "@/store/editor-store";
 import CaptionOverlay from "./CaptionOverlay";
 import TransportControls from "./TransportControls";
 import PlatformPreviewOverlay, { PlatformPreviewToggle } from "./PlatformPreviewOverlay";
+import BackgroundLayer from "./BackgroundLayer";
 import { sampleZoom } from "@/core/zoom";
 import { sfxEngine } from "@/core/audio";
 
@@ -23,6 +24,7 @@ export default function VideoPreview() {
   const videoEffects = useEditorStore((s) => s.project.globalStyle.videoEffects);
   const sfxSettings = useEditorStore((s) => s.project.globalStyle.sfx);
   const sfxEvents = useEditorStore((s) => s.project.composition.sfxEvents);
+  const backgroundMode = useEditorStore((s) => s.project.globalStyle.background.mode);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) {
@@ -183,10 +185,21 @@ export default function VideoPreview() {
                 const d = e.currentTarget.duration;
                 setDuration(Number.isFinite(d) && d > 0 ? d : 0);
               }}
-              className={`w-full h-full ${previewPlatform !== "none" ? "object-cover" : "object-contain"}`}
+              className={`w-full h-full ${previewPlatform !== "none" ? "object-cover" : "object-contain"} ${
+                backgroundMode !== "none" ? "opacity-0" : ""
+              }`}
               playsInline
               onClick={handleVideoClick}
             />
+            {backgroundMode !== "none" && (
+              <BackgroundLayer
+                videoRef={videoRef}
+                onClick={handleVideoClick}
+                className={`absolute inset-0 w-full h-full cursor-pointer ${
+                  previewPlatform !== "none" ? "object-cover" : "object-contain"
+                }`}
+              />
+            )}
           </div>
           <div
             className="absolute inset-x-0 bottom-0 pointer-events-none"

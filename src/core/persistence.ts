@@ -23,6 +23,7 @@ export interface PersistedProject {
   speakerMotions: Record<string, Partial<WordMotion>>;
   dictionary?: DictionaryEntry[];
   groupLayouts: Record<string, PersistedGroupLayout>;
+  demoMode?: boolean;
   savedAt: number;
 }
 

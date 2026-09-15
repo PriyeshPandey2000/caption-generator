@@ -1,4 +1,4 @@
-import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle, VideoEffects, SfxSettings } from "./types";
+import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle, VideoEffects, SfxSettings, BackgroundSettings } from "./types";
 
 // Vertical caption position bounds (percent of video height). Shared so the
 // inspector slider and the render clamp can never drift apart.
@@ -79,12 +79,20 @@ export const defaultSfxSettings: SfxSettings = {
   sfxSeed: 1,
 };
 
+export const defaultBackgroundSettings: BackgroundSettings = {
+  mode: "none",
+  color: "#00FF66",
+  imageUrl: null,
+  blurAmount: 12,
+};
+
 export const defaultGlobalStyle: GlobalStyle = {
   style: defaultWordStyle,
   motion: defaultMotion,
   transform: defaultTransform,
   maxWordsPerGroup: 4,
   videoEffects: defaultVideoEffects,
+  background: defaultBackgroundSettings,
   sfx: defaultSfxSettings,
 };
 

@@ -13,6 +13,7 @@ import {
   Composition,
   PreviewPlatform,
   DictionaryEntry,
+  BackgroundMode,
 } from "@/core/types";
 import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
@@ -97,6 +98,10 @@ interface EditorState {
   regenerateSfx: () => void;
   setSfxOverride: (wordId: string, val: "inherit" | "none" | SfxName) => void;
   addManualSfxEvent: (wordId: string, sound: SfxName) => void;
+  setBackgroundMode: (mode: BackgroundMode) => void;
+  setBackgroundColor: (color: string) => void;
+  setBackgroundImage: (imageUrl: string | null) => void;
+  setBackgroundBlurAmount: (blurAmount: number) => void;
   restorePersisted: (data: {
     transcription: TranscriptionResult | null;
     globalStyle: GlobalStyle;
@@ -105,6 +110,7 @@ interface EditorState {
     speakerMotions: Record<string, Partial<WordMotion>>;
     dictionary?: DictionaryEntry[];
     groupLayouts: Record<string, GroupLayout>;
+    demoMode?: boolean;
   }) => void;
   newProject: () => void;
   undo: () => void;
@@ -125,6 +131,7 @@ const initialState: Project = {
   dictionary: [],
   isTranscribing: false,
   error: null,
+  demoMode: false,
 };
 
 // Serialize IndexedDB video writes (save + clear). Both operations touch the
@@ -242,7 +249,11 @@ export const useEditorStore = create<EditorState>((set) => ({
     const url = URL.createObjectURL(file);
     const prevUrl = useEditorStore.getState().videoUrl;
     if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
-    set({ videoFile: file, videoUrl: url });
+    set((s) => ({
+      videoFile: file,
+      videoUrl: url,
+      project: { ...s.project, demoMode: false },
+    }));
     enqueueVideoOp(() =>
       saveVideoToStorage({ blob: file, name: file.name, type: file.type })
     ).then((persisted) => {
@@ -382,6 +393,50 @@ export const useEditorStore = create<EditorState>((set) => ({
       },
     })),
 
+  setBackgroundMode: (mode) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          background: { ...s.project.globalStyle.background, mode },
+        },
+      },
+    })),
+
+  setBackgroundColor: (color) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          background: { ...s.project.globalStyle.background, color },
+        },
+      },
+    })),
+
+  setBackgroundImage: (imageUrl) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          background: { ...s.project.globalStyle.background, imageUrl },
+        },
+      },
+    })),
+
+  setBackgroundBlurAmount: (blurAmount) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          background: { ...s.project.globalStyle.background, blurAmount },
+        },
+      },
+    })),
+
   updateSpeakerStyle: (speaker, style) =>
     set((s) => ({
       project: {
@@ -475,6 +530,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         ...s.project,
         transcription: createDemoTranscription(),
         error: null,
+        demoMode: true,
       },
       videoFile: null,
       videoUrl: DEMO_VIDEO_URL,
@@ -1088,6 +1144,10 @@ export const useEditorStore = create<EditorState>((set) => ({
             ...defaultGlobalStyle.sfx,
             ...data.globalStyle.sfx,
           },
+          background: {
+            ...defaultGlobalStyle.background,
+            ...data.globalStyle.background,
+          },
         },
         composition: {
           sfxEvents: data.composition?.sfxEvents ?? [],
@@ -1096,6 +1156,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         speakerStyles: data.speakerStyles,
         speakerMotions: data.speakerMotions,
         dictionary: data.dictionary ?? [],
+        demoMode: data.demoMode ?? false,
         isTranscribing: false,
         error: null,
       },
@@ -1144,6 +1205,7 @@ export const useEditorStore = create<EditorState>((set) => ({
           dictionary: [],
           isTranscribing: false,
           error: null,
+          demoMode: false,
         },
         groupLayouts: {},
         currentTime: 0,
@@ -1183,6 +1245,7 @@ if (typeof window !== "undefined") {
         speakerMotions: s.project.speakerMotions,
         dictionary: s.project.dictionary,
         groupLayouts: s.groupLayouts,
+        demoMode: s.project.demoMode,
       });
     }, 300);
   });
