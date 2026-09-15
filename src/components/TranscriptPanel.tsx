@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, memo } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import EditableWord from "@/components/EditableWord";
+import { DictionaryEntry } from "@/core/types";
 
 // Numbers and other detail-heavy tokens are what speech-to-text gets wrong
 // most often — highlighting them draws the eye to what's worth double-checking.
@@ -30,7 +31,11 @@ export default function TranscriptPanel({ onClose }: { onClose?: () => void }) {
   const setSelectedWords = useEditorStore((s) => s.setSelectedWords);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const updateWordText = useEditorStore((s) => s.updateWordText);
+  const dictionary = useEditorStore((s) => s.project.dictionary);
+  const addDictionaryEntry = useEditorStore((s) => s.addDictionaryEntry);
+  const removeDictionaryEntry = useEditorStore((s) => s.removeDictionaryEntry);
   const [editMode, setEditMode] = useState(false);
+  const [showDictionary, setShowDictionary] = useState(false);
 
   if (!transcription) return null;
 
@@ -45,6 +50,15 @@ export default function TranscriptPanel({ onClose }: { onClose?: () => void }) {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowDictionary((v) => !v)}
+            title="Dictionary — fix words your video keeps mishearing"
+            className={`px-1.5 h-6 flex items-center justify-center rounded text-[10px] font-medium transition-colors ${
+              showDictionary ? "bg-[#00FF66] text-black" : "text-zinc-500 hover:text-white"
+            }`}
+          >
+            Dictionary{dictionary.length > 0 ? ` (${dictionary.length})` : ""}
+          </button>
           <button
             onClick={() => setEditMode((v) => !v)}
             title={editMode ? "Editing on — click to turn off" : "Turn on editing"}
@@ -67,6 +81,13 @@ export default function TranscriptPanel({ onClose }: { onClose?: () => void }) {
           )}
         </div>
       </div>
+      {showDictionary && (
+        <DictionarySection
+          entries={dictionary}
+          onAdd={addDictionaryEntry}
+          onRemove={removeDictionaryEntry}
+        />
+      )}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {transcription.captionGroups.map((group) => {
           const isActive = currentTime >= group.start && currentTime <= group.end;
@@ -263,3 +284,76 @@ const EditableSentence = memo(function EditableSentence({
     </p>
   );
 });
+
+// Corrections apply on every future transcription of this project: as a
+// vocabulary hint sent to Whisper up front, and as a guaranteed find-replace
+// pass on the result (see src/core/dictionary.ts). Kept collapsed by default
+// — most projects never need it, and it shouldn't compete with the transcript
+// for attention when it's empty.
+function DictionarySection({
+  entries,
+  onAdd,
+  onRemove,
+}: {
+  entries: DictionaryEntry[];
+  onAdd: (from: string, to: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const submit = () => {
+    if (!from.trim() || !to.trim()) return;
+    onAdd(from, to);
+    setFrom("");
+    setTo("");
+  };
+
+  return (
+    <div className="px-4 py-3 border-b border-zinc-800 shrink-0 space-y-2 bg-zinc-950/40">
+      <p className="text-[10px] text-zinc-500">
+        Words this video keeps mishearing → what they should say. Applies to future transcriptions in this project.
+      </p>
+      {entries.length > 0 && (
+        <ul className="space-y-1">
+          {entries.map((e) => (
+            <li key={e.id} className="flex items-center gap-2 text-xs">
+              <span className="text-zinc-500 truncate">{e.from}</span>
+              <span className="text-zinc-600">→</span>
+              <span className="text-white truncate flex-1">{e.to}</span>
+              <button
+                onClick={() => onRemove(e.id)}
+                title="Remove"
+                className="text-zinc-500 hover:text-red-400 shrink-0"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex items-center gap-1.5">
+        <input
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="mis-heard as..."
+          className="min-w-0 flex-1 bg-zinc-800 text-xs text-white rounded px-2 py-1 outline-none focus:ring-1 focus:ring-[#00FF66]/50"
+        />
+        <input
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="should say..."
+          className="min-w-0 flex-1 bg-zinc-800 text-xs text-white rounded px-2 py-1 outline-none focus:ring-1 focus:ring-[#00FF66]/50"
+        />
+        <button
+          onClick={submit}
+          className="shrink-0 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-white text-xs rounded"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}

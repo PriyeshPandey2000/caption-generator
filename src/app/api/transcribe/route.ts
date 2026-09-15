@@ -54,7 +54,8 @@ function isFfmpegAvailable(): Promise<boolean> {
 
 async function tryGroqDirect(
   file: File,
-  apiKey: string
+  apiKey: string,
+  prompt?: string
 ): Promise<Response> {
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
   const groqExt = ACCEPTED_EXTS.has(ext) ? ext : (UNSUPPORTED_EXT_MAP[ext] ?? "mp4");
@@ -70,6 +71,7 @@ async function tryGroqDirect(
   fd.append("timestamp_granularities[]", "word");
   fd.append("timestamp_granularities[]", "segment");
   fd.append("language", "en");
+  if (prompt) fd.append("prompt", prompt);
 
   return fetch(GROQ_URL, {
     method: "POST",
@@ -86,7 +88,8 @@ async function tryGroqDirect(
 // first. Returns null only on ffmpeg failure so the route can respond clearly.
 async function tryWithFfmpeg(
   file: File,
-  apiKey: string
+  apiKey: string,
+  prompt?: string
 ): Promise<Response | null> {
   const id = randomUUID();
   const tmpIn = join(tmpdir(), `${id}_in`);
@@ -120,6 +123,7 @@ async function tryWithFfmpeg(
     fd.append("timestamp_granularities[]", "word");
     fd.append("timestamp_granularities[]", "segment");
     fd.append("language", "en");
+    if (prompt) fd.append("prompt", prompt);
 
     return fetch(GROQ_URL, {
       method: "POST",
@@ -153,6 +157,7 @@ export async function POST(request: NextRequest) {
     const file = formData.get("file") as File | null;
     const userKey = formData.get("apiKey") as string | null;
     const apiKey = userKey || process.env.GROQ_API_KEY;
+    const prompt = (formData.get("prompt") as string | null) || undefined;
 
     if (!file) {
       return errResponse("No file provided", 400);
@@ -161,7 +166,7 @@ export async function POST(request: NextRequest) {
       return errResponse("Groq API key required", 400);
     }
 
-    const direct = await tryGroqDirect(file, apiKey);
+    const direct = await tryGroqDirect(file, apiKey, prompt);
 
     // Direct upload succeeded — done.
     if (direct.ok) {
@@ -171,7 +176,7 @@ export async function POST(request: NextRequest) {
     // Groq rejected the direct upload. Try normalizing the audio server-side.
     const ffmpeg = await isFfmpegAvailable();
     if (ffmpeg) {
-      const normalized = await tryWithFfmpeg(file, apiKey);
+      const normalized = await tryWithFfmpeg(file, apiKey, prompt);
       // The normalized fetch ran. If it succeeded, return its transcript;
       // if it came back with a non-OK response, surface that response rather
       // than the direct-upload rejection it was intended to replace.

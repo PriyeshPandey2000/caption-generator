@@ -159,6 +159,16 @@ export interface Composition {
 
 export type StyleOverrideLevel = "global" | "speaker" | "phrase" | "word";
 
+// A user-maintained correction list for words Whisper reliably mishears
+// (brand names, proper nouns). Applied two ways on every transcription: as a
+// vocabulary hint in the Whisper prompt (biases recognition upfront) and as a
+// guaranteed find-replace pass on the result (catches what the hint doesn't).
+export interface DictionaryEntry {
+  id: string;
+  from: string;
+  to: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -169,6 +179,7 @@ export interface Project {
   composition: Composition;
   speakerStyles: Record<string, Partial<WordStyle>>;
   speakerMotions: Record<string, Partial<WordMotion>>;
+  dictionary: DictionaryEntry[];
   isTranscribing: boolean;
   error: string | null;
 }

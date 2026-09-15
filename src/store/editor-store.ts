@@ -12,10 +12,11 @@ import {
   SfxName,
   Composition,
   PreviewPlatform,
+  DictionaryEntry,
 } from "@/core/types";
 import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
-import { createDemoTranscription } from "@/core/demo";
+import { createDemoTranscription, DEMO_VIDEO_URL } from "@/core/demo";
 import { ChoreographyBundle, highlightEmphasisWords } from "@/core/choreography";
 import {
   saveProjectToStorage,
@@ -72,6 +73,8 @@ interface EditorState {
   updateSpeakerMotion: (speaker: string, motion: Partial<WordMotion>) => void;
   resetWordStyle: (wordId: string) => void;
   resetWordMotion: (wordId: string) => void;
+  addDictionaryEntry: (from: string, to: string) => void;
+  removeDictionaryEntry: (id: string) => void;
   loadDemo: () => void;
   applyChoreography: (bundle: ChoreographyBundle) => void;
   groupLayouts: Record<string, GroupLayout>;
@@ -99,6 +102,7 @@ interface EditorState {
     composition?: Composition;
     speakerStyles: Record<string, Partial<WordStyle>>;
     speakerMotions: Record<string, Partial<WordMotion>>;
+    dictionary?: DictionaryEntry[];
     groupLayouts: Record<string, GroupLayout>;
   }) => void;
   newProject: () => void;
@@ -117,6 +121,7 @@ const initialState: Project = {
   composition: { sfxEvents: [] },
   speakerStyles: {},
   speakerMotions: {},
+  dictionary: [],
   isTranscribing: false,
   error: null,
 };
@@ -426,14 +431,43 @@ export const useEditorStore = create<EditorState>((set) => ({
       };
     }),
 
-  loadDemo: () =>
+  addDictionaryEntry: (from, to) =>
+    set((s) => {
+      const trimmedFrom = from.trim();
+      const trimmedTo = to.trim();
+      if (!trimmedFrom || !trimmedTo) return s;
+      return {
+        project: {
+          ...s.project,
+          dictionary: [
+            ...s.project.dictionary,
+            { id: uuid(), from: trimmedFrom, to: trimmedTo },
+          ],
+        },
+      };
+    }),
+
+  removeDictionaryEntry: (id) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        dictionary: s.project.dictionary.filter((e) => e.id !== id),
+      },
+    })),
+
+  loadDemo: () => {
+    const prevUrl = useEditorStore.getState().videoUrl;
+    if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
     set((s) => ({
       project: {
         ...s.project,
         transcription: createDemoTranscription(),
         error: null,
       },
-    })),
+      videoFile: null,
+      videoUrl: DEMO_VIDEO_URL,
+    }));
+  },
 
   applyChoreography: (bundle) =>
     set((s) => {
@@ -1038,6 +1072,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         },
         speakerStyles: data.speakerStyles,
         speakerMotions: data.speakerMotions,
+        dictionary: data.dictionary ?? [],
         isTranscribing: false,
         error: null,
       },
@@ -1083,6 +1118,7 @@ export const useEditorStore = create<EditorState>((set) => ({
           composition: { sfxEvents: [], sfxOverrides: {} },
           speakerStyles: {},
           speakerMotions: {},
+          dictionary: [],
           isTranscribing: false,
           error: null,
         },
@@ -1122,6 +1158,7 @@ if (typeof window !== "undefined") {
         composition: s.project.composition,
         speakerStyles: s.project.speakerStyles,
         speakerMotions: s.project.speakerMotions,
+        dictionary: s.project.dictionary,
         groupLayouts: s.groupLayouts,
       });
     }, 300);

@@ -48,11 +48,22 @@ export default function CaptionOverlay({
 
   const activeGroup = useMemo(() => {
     if (!transcription) return null;
-    return (
-      transcription.captionGroups.find(
-        (g) => currentTime >= g.start && currentTime <= g.end
-      ) || null
-    );
+    const groups = transcription.captionGroups;
+    // Half-open interval: at a zero-gap boundary between two groups (routine
+    // for real transcripts — parseSegmentsToWords' even-split fallback
+    // produces exactly-touching timestamps), currentTime must resolve to the
+    // incoming group, not the outgoing one. An inclusive end on both sides
+    // let both groups match simultaneously, so .find() silently kept the
+    // stale group for one tick — its still-fading tail word rendered
+    // alongside the new group's words (the "ghost previous word" bug).
+    const match = groups.find((g) => currentTime >= g.start && currentTime < g.end);
+    if (match) return match;
+    // Exception: the very last group must still render at the transcript's
+    // exact closing instant (e.g. scrubbed to the end) — the half-open check
+    // above excludes that instant for every group, including the last one.
+    const last = groups[groups.length - 1];
+    if (last && currentTime === last.end) return last;
+    return null;
   }, [transcription, currentTime]);
 
   const activeWords = useMemo(() => {
@@ -264,13 +275,14 @@ export default function CaptionOverlay({
               : {}),
           }}
         >
-          {activeWords.map((word) => (
+          {activeWords.map((word, i) => (
             <WordSpan
               key={word.id}
               word={word}
               scaleFactor={scaleFactor}
               isSelected={selectedWordIds.includes(word.id) && selectedWordIds.length > 1}
               onSelect={(e) => selectWord(word.id, e.metaKey || e.ctrlKey)}
+              isGroupLastWord={i === activeWords.length - 1}
             />
           ))}
         </div>
@@ -314,11 +326,13 @@ function WordSpan({
   isSelected,
   onSelect,
   scaleFactor = 1,
+  isGroupLastWord,
 }: {
   word: Word;
   isSelected: boolean;
   onSelect: (e: React.MouseEvent) => void;
   scaleFactor: number;
+  isGroupLastWord: boolean;
 }) {
   const globalStyle = useEditorStore((s) => s.project.globalStyle);
   const speakerStyles = useEditorStore((s) => s.project.speakerStyles);
@@ -359,13 +373,17 @@ function WordSpan({
   // stretched by the transform and looks jagged on diagonal letters (A/M/N).
   if (emphasis && emphasis.type === "scale" && isSpokenNow) {
     animStyle.fontSize = `${(baseFontSize * (emphasis.scaleTo ?? 140)) / 100}px`;
-    if (emphasis.color) animStyle.color = emphasis.color;
+    // A user's explicit per-word color override always wins over the
+    // karaoke-style animation color — otherwise a paused, selected word
+    // (which is "spoken now" by definition) silently reverts to the
+    // animation's color and the color picker looks broken.
+    if (emphasis.color && !word.style?.color) animStyle.color = emphasis.color;
     if (emphasis.glowRadius) {
       animStyle.textShadow = `0 0 ${emphasis.glowRadius * scaleFactor}px ${emphasis.color || "#FFD700"}`;
     }
   } else if (activeAnim && activeAnim.type === "scale" && isSpokenNow) {
     animStyle.fontSize = `${(baseFontSize * (activeAnim.scaleTo ?? 125)) / 100}px`;
-    if (activeAnim.color) animStyle.color = activeAnim.color;
+    if (activeAnim.color && !word.style?.color) animStyle.color = activeAnim.color;
     if (activeAnim.glowRadius) {
       animStyle.textShadow = `0 0 ${activeAnim.glowRadius * scaleFactor}px ${activeAnim.color || "#FFD700"}`;
     }
@@ -373,8 +391,12 @@ function WordSpan({
 
   // Exit: fade out after word ends. Pure function of currentTime (not
   // gated on isPlaying) so pausing or scrubbing mid-fade doesn't snap the
-  // word back to fully visible.
-  if (exit && hasEnded) {
+  // word back to fully visible. Only the group's last word fades — an
+  // already-spoken word earlier in the same caption line must stay fully
+  // visible while its still-being-spoken group-mates are showing, or the
+  // line reads as missing a word (a "ghost"/ ghosted-out word) instead of
+  // the whole line fading together when the group actually ends.
+  if (exit && hasEnded && isGroupLastWord) {
     const elapsedMs = (currentTime - word.end) * 1000;
     const exitDuration = exit.duration || 120;
     const progress = Math.min(1, Math.max(0, elapsedMs / exitDuration));
