@@ -67,13 +67,17 @@ export default function CaptionOverlay({
     // a zero-gap boundary still resolves to the incoming group (the "ghost
     // previous word" fix), and when there's no exit animation the grace
     // window collapses to zero.
+    //
+    // g.end and nextStart are seconds (word timestamps, currentTime); the
+    // exit duration is milliseconds (WordSpan converts elapsed time to ms
+    // before comparing against exit.duration), so convert before adding.
     const match = groups.find((g, i) => {
       const lastWordId = g.wordIds[g.wordIds.length - 1];
       const lastWord = lastWordId ? transcription.words.find((w) => w.id === lastWordId) : undefined;
       const exit = lastWord?.animation?.exit || globalStyle.motion.exit;
-      const exitDuration = exit ? exit.duration || EXIT_FADE_DEFAULT_DURATION_MS : 0;
+      const exitDurationMs = exit ? exit.duration || EXIT_FADE_DEFAULT_DURATION_MS : 0;
       const nextStart = groups[i + 1]?.start ?? Infinity;
-      const graceEnd = Math.min(g.end + exitDuration, nextStart);
+      const graceEnd = Math.min(g.end + exitDurationMs / 1000, nextStart);
       return currentTime >= g.start && currentTime < graceEnd;
     });
     if (match) return match;
