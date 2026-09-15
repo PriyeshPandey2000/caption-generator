@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, memo } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import EditableWord from "@/components/EditableWord";
 import { DictionaryEntry } from "@/core/types";
+import { isSingleToken } from "@/core/dictionary";
 
 // Numbers and other detail-heavy tokens are what speech-to-text gets wrong
 // most often — highlighting them draws the eye to what's worth double-checking.
@@ -301,10 +302,21 @@ function DictionarySection({
 }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [validation, setValidation] = useState<string | null>(null);
 
   const submit = () => {
-    if (!from.trim() || !to.trim()) return;
-    onAdd(from, to);
+    const f = from.trim();
+    const t = to.trim();
+    if (!f || !t) {
+      setValidation("Enter both the mis-heard word and the correction.");
+      return;
+    }
+    if (!isSingleToken(f) || !isSingleToken(t)) {
+      setValidation("Each entry fixes one word — use a single word on both sides.");
+      return;
+    }
+    setValidation(null);
+    onAdd(f, t);
     setFrom("");
     setTo("");
   };
@@ -332,17 +344,28 @@ function DictionarySection({
           ))}
         </ul>
       )}
+      {validation && (
+        <p role="status" className="text-[10px] text-red-400">
+          {validation}
+        </p>
+      )}
       <div className="flex items-center gap-1.5">
         <input
           value={from}
-          onChange={(e) => setFrom(e.target.value)}
+          onChange={(e) => {
+            setFrom(e.target.value);
+            setValidation(null);
+          }}
           onKeyDown={(e) => e.key === "Enter" && submit()}
           placeholder="mis-heard as..."
           className="min-w-0 flex-1 bg-zinc-800 text-xs text-white rounded px-2 py-1 outline-none focus:ring-1 focus:ring-[#00FF66]/50"
         />
         <input
           value={to}
-          onChange={(e) => setTo(e.target.value)}
+          onChange={(e) => {
+            setTo(e.target.value);
+            setValidation(null);
+          }}
           onKeyDown={(e) => e.key === "Enter" && submit()}
           placeholder="should say..."
           className="min-w-0 flex-1 bg-zinc-800 text-xs text-white rounded px-2 py-1 outline-none focus:ring-1 focus:ring-[#00FF66]/50"

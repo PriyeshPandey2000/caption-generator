@@ -16,6 +16,7 @@ import {
 } from "@/core/types";
 import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
+import { isSingleToken } from "@/core/dictionary";
 import { createDemoTranscription, DEMO_VIDEO_URL } from "@/core/demo";
 import { ChoreographyBundle, highlightEmphasisWords } from "@/core/choreography";
 import {
@@ -435,7 +436,10 @@ export const useEditorStore = create<EditorState>((set) => ({
     set((s) => {
       const trimmedFrom = from.trim();
       const trimmedTo = to.trim();
-      if (!trimmedFrom || !trimmedTo) return s;
+      // A dictionary correction maps one mis-heard token to its replacement.
+      // Multi-word values are not representable in the word model (a Word is a
+      // single token with one timestamp), so reject them here.
+      if (!isSingleToken(trimmedFrom) || !isSingleToken(trimmedTo)) return s;
       return {
         project: {
           ...s.project,
@@ -458,6 +462,14 @@ export const useEditorStore = create<EditorState>((set) => ({
   loadDemo: () => {
     const prevUrl = useEditorStore.getState().videoUrl;
     if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+    // The demo plays a static /samples URL, not an uploaded blob — but a
+    // previously uploaded video may still be in IndexedDB and would otherwise
+    // resurrect on the next reload (Editor restores that blob when videoFile
+    // is null, clobbering DEMO_VIDEO_URL with a stale upload). Bump the save
+    // generation first so an in-flight save result for the old upload can't
+    // report a stale failure against demo state, then queue the clear behind
+    // it — enqueueVideoOp serializes, so the clear can't race a pending save.
+    ++videoSaveGeneration;
     set((s) => ({
       project: {
         ...s.project,
@@ -467,6 +479,17 @@ export const useEditorStore = create<EditorState>((set) => ({
       videoFile: null,
       videoUrl: DEMO_VIDEO_URL,
     }));
+    if (typeof window !== "undefined") {
+      enqueueVideoOp(clearVideoFromStorage).then((cleared) => {
+        if (!cleared) {
+          useEditorStore
+            .getState()
+            .setError(
+              "Couldn't fully clear your previous video from local storage. If it reappears after a refresh, it's a browser-storage limitation."
+            );
+        }
+      });
+    }
   },
 
   applyChoreography: (bundle) =>
