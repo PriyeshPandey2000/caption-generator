@@ -45,18 +45,37 @@ function nextTimestamp(requested: number): number {
 // landing on the subject instead of the background, the opposite of what
 // this repo's convention needs (1 = person). Verify visually after this
 // change; flip back if the cutout is still backwards.
+let warnedFrameNotReady = false;
 export function segmentFrame(
   segmenter: ImageSegmenter,
   video: HTMLVideoElement,
   timestampMs: number
 ): { mask: Float32Array; width: number; height: number } | null {
+  // VIDEO running mode needs a decoded frame at the current playhead.
+  // segmentForVideo throws synchronously when the video isn't there yet —
+  // right after enabling a mode (frame not decoded during play-start / at
+  // t=0) or mid-scrub before the browser hands back the target frame. Guard
+  // with HAVE_CURRENT_DATA and swallow the remaining throws so a not-ready
+  // frame degrades to "skip this tick" (the rAF loop retries once the frame
+  // lands) instead of crashing the editor with an error overlay.
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return null;
   let result: { mask: Float32Array; width: number; height: number } | null = null;
-  segmenter.segmentForVideo(video, nextTimestamp(timestampMs), (res) => {
-    const confidence = res.confidenceMasks?.[0];
-    if (!confidence) return;
-    const mask = new Float32Array(confidence.getAsFloat32Array());
-    result = { mask, width: confidence.width, height: confidence.height };
-    confidence.close();
-  });
+  try {
+    segmenter.segmentForVideo(video, nextTimestamp(timestampMs), (res) => {
+      const confidence = res.confidenceMasks?.[0];
+      if (!confidence) return;
+      const mask = new Float32Array(confidence.getAsFloat32Array());
+      result = { mask, width: confidence.width, height: confidence.height };
+      confidence.close();
+    });
+  } catch (err) {
+    if (!warnedFrameNotReady) {
+      warnedFrameNotReady = true;
+      console.warn(
+        "Segmenter frame not ready — skipping until the video has a decoded frame.",
+        err
+      );
+    }
+  }
   return result;
 }
