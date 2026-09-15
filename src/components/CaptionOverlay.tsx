@@ -11,6 +11,10 @@ import EditableWord from "@/components/EditableWord";
 // tiniest hand tremor would start a rubber-band selection.
 const MARQUEE_THRESHOLD = 4;
 
+// Matches WordSpan's `exit.duration || 120` fallback (single source of truth
+// so the active-group grace window and the rendered fade can never drift).
+const EXIT_FADE_DEFAULT_DURATION_MS = 120;
+
 export default function CaptionOverlay({
   onBackgroundClick,
   scaleFactor = 1,
@@ -49,22 +53,43 @@ export default function CaptionOverlay({
   const activeGroup = useMemo(() => {
     if (!transcription) return null;
     const groups = transcription.captionGroups;
-    // Half-open interval: at a zero-gap boundary between two groups (routine
-    // for real transcripts — parseSegmentsToWords' even-split fallback
-    // produces exactly-touching timestamps), currentTime must resolve to the
-    // incoming group, not the outgoing one. An inclusive end on both sides
-    // let both groups match simultaneously, so .find() silently kept the
-    // stale group for one tick — its still-fading tail word rendered
-    // alongside the new group's words (the "ghost previous word" bug).
-    const match = groups.find((g) => currentTime >= g.start && currentTime < g.end);
+    // A group's wordIds are what it renders while active, so its "active"
+    // window must stay open a touch past g.end to cover the last word's
+    // exit-fade (see WordSpan) — g.end IS that last word's end, so a plain
+    // half-open [start, end) lookup unmounts the group the instant the fade
+    // should begin and sentence endings hard-cut instead of fading.
+    //
+    // Extend the window by the last word's resolved exit duration (its
+    // explicit per-word recipe, else the global motion's), but never past
+    // the next group's start: if two sentences sit close together the
+    // incoming one must not be delayed — the outgoing one just gets its fade
+    // cut short. Half-open start-inclusive / end-exclusive rules are kept so
+    // a zero-gap boundary still resolves to the incoming group (the "ghost
+    // previous word" fix), and when there's no exit animation the grace
+    // window collapses to zero.
+    //
+    // g.end and nextStart are seconds (word timestamps, currentTime); the
+    // exit duration is milliseconds (WordSpan converts elapsed time to ms
+    // before comparing against exit.duration), so convert before adding.
+    const match = groups.find((g, i) => {
+      const lastWordId = g.wordIds[g.wordIds.length - 1];
+      const lastWord = lastWordId ? transcription.words.find((w) => w.id === lastWordId) : undefined;
+      const exit = lastWord?.animation?.exit || globalStyle.motion.exit;
+      const exitDurationMs = exit ? exit.duration || EXIT_FADE_DEFAULT_DURATION_MS : 0;
+      const nextStart = groups[i + 1]?.start ?? Infinity;
+      const graceEnd = Math.min(g.end + exitDurationMs / 1000, nextStart);
+      return currentTime >= g.start && currentTime < graceEnd;
+    });
     if (match) return match;
     // Exception: the very last group must still render at the transcript's
     // exact closing instant (e.g. scrubbed to the end) — the half-open check
-    // above excludes that instant for every group, including the last one.
+    // above excludes that instant for every group (including the last one)
+    // when its exit grace window is zero, and it's already covered by the
+    // grace window otherwise.
     const last = groups[groups.length - 1];
     if (last && currentTime === last.end) return last;
     return null;
-  }, [transcription, currentTime]);
+  }, [transcription, currentTime, globalStyle]);
 
   const activeWords = useMemo(() => {
     const active: Word[] = [];
@@ -398,7 +423,7 @@ function WordSpan({
   // the whole line fading together when the group actually ends.
   if (exit && hasEnded && isGroupLastWord) {
     const elapsedMs = (currentTime - word.end) * 1000;
-    const exitDuration = exit.duration || 120;
+    const exitDuration = exit.duration || EXIT_FADE_DEFAULT_DURATION_MS;
     const progress = Math.min(1, Math.max(0, elapsedMs / exitDuration));
     const fromOpacity = exit.from ?? 1;
     const toOpacity = exit.to ?? 0;
