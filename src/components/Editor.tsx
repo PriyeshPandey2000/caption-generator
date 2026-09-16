@@ -9,6 +9,7 @@ import {
 } from "react-resizable-panels";
 import { useEditorStore } from "@/store/editor-store";
 import { parseSegmentsToWords, groupWordsIntoCaptions } from "@/core/captions";
+import { applyTranscriptCleanup } from "@/core/transcript-cleanup";
 import { buildWhisperPrompt, applyDictionary } from "@/core/dictionary";
 import {
   loadProjectFromStorage,
@@ -205,10 +206,20 @@ export default function Editor() {
         }
 
         const data = await res.json();
-        const { words: rawWords, parsedSegments } = parseSegmentsToWords(data.segments || []);
-        // The prompt above only biases Whisper's recognition — this is the
-        // guaranteed fix for whatever it still gets wrong.
-        const words = applyDictionary(rawWords, dictionary);
+        const { words: rawWords, parsedSegments } = parseSegmentsToWords(
+          data.segments || [],
+          // Groq returns real per-word timestamps at the top level — use them
+          // as the primary timing source instead of even-splitting segments.
+          data.words
+        );
+        // The Whisper prompt above only biases recognition. This contextual
+        // cleanup pass catches one-off ASR errors the dictionary can't know
+        // about; it is strictly 1:1 and fully fail-open, so a rejection or
+        // failure leaves the transcript untouched.
+        const cleanedWords = await applyTranscriptCleanup(rawWords);
+        // The user dictionary is user-authoritative and always wins — it must
+        // run after the cleanup pass and override anything the LLM decided.
+        const words = applyDictionary(cleanedWords, dictionary);
         const captionGroups = groupWordsIntoCaptions(
           words,
           globalStyle.maxWordsPerGroup

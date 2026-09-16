@@ -39,13 +39,51 @@ export function parseSegmentsToWords(
     start: number;
     end: number;
     words?: Array<{ word: string; start: number; end: number }>;
-  }>
+  }>,
+  // Groq's verbose_json returns a top-level `words` array with real per-word
+  // timestamps (we always request word granularity) — this is the primary
+  // timing source. Segments are used only for text groupings.
+  wordTimings?: Array<{ word: string; start: number; end: number }>
 ): { words: Word[]; parsedSegments: Segment[] } {
-  const allWords: Word[] = [];
-  const parsedSegments: Segment[] = [];
+  const parsedSegments: Segment[] = segments.map((seg) => ({
+    id: uuid(),
+    text: seg.text,
+    start: seg.start,
+    end: seg.end,
+    words: [],
+  }));
 
-  for (const seg of segments) {
-    const segWords: Word[] = [];
+  // Primary path: Whisper's word-level timestamps. These are authoritative —
+  // the even-split fallback below gives "a" and "internationally" the same
+  // on-screen duration regardless of real cadence. Attribution walks both
+  // arrays in order (words and segments are chronological), so gaps between
+  // segments are handled and ordering is never scrambled.
+  if (wordTimings && wordTimings.length > 0) {
+    const words: Word[] = wordTimings.map((w) => ({
+      id: uuid(),
+      text: w.word.trim(),
+      start: w.start,
+      end: w.end,
+    }));
+    let segIdx = 0;
+    for (const word of words) {
+      while (
+        segIdx < parsedSegments.length - 1 &&
+        word.start >= parsedSegments[segIdx + 1].start
+      ) {
+        segIdx++;
+      }
+      parsedSegments[segIdx].words.push(word);
+    }
+    return { words, parsedSegments };
+  }
+
+  // Fallback (no word-level timestamps returned): derive words from segment
+  // text. Nested per-segment words if the provider supplies them, else
+  // evenly split each segment's duration across its tokens.
+  const allWords: Word[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
 
     if (seg.words && seg.words.length > 0) {
       for (const w of seg.words) {
@@ -55,7 +93,7 @@ export function parseSegmentsToWords(
           start: w.start,
           end: w.end,
         };
-        segWords.push(word);
+        parsedSegments[i].words.push(word);
         allWords.push(word);
       }
     } else {
@@ -63,25 +101,17 @@ export function parseSegmentsToWords(
       const duration = seg.end - seg.start;
       const tokenDuration = duration / tokens.length;
 
-      for (let i = 0; i < tokens.length; i++) {
+      for (let t = 0; t < tokens.length; t++) {
         const word: Word = {
           id: uuid(),
-          text: tokens[i],
-          start: seg.start + i * tokenDuration,
-          end: seg.start + (i + 1) * tokenDuration,
+          text: tokens[t],
+          start: seg.start + t * tokenDuration,
+          end: seg.start + (t + 1) * tokenDuration,
         };
-        segWords.push(word);
+        parsedSegments[i].words.push(word);
         allWords.push(word);
       }
     }
-
-    parsedSegments.push({
-      id: uuid(),
-      text: seg.text,
-      start: seg.start,
-      end: seg.end,
-      words: segWords,
-    });
   }
 
   return { words: allWords, parsedSegments };
