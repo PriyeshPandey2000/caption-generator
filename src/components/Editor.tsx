@@ -220,6 +220,15 @@ export default function Editor() {
         // The user dictionary is user-authoritative and always wins — it must
         // run after the cleanup pass and override anything the LLM decided.
         const words = applyDictionary(cleanedWords, dictionary);
+        // Both correction passes replace Word objects, so parsedSegments
+        // (built from the same raw objects) would hold stale pre-cleanup text
+        // if kept as-is. Rebuild every segment's words from the final words by
+        // id so result.words and result.segments[*].words never diverge.
+        const finalWordById = new Map(words.map((w) => [w.id, w]));
+        const segments = parsedSegments.map((seg) => ({
+          ...seg,
+          words: seg.words.map((w) => finalWordById.get(w.id) ?? w),
+        }));
         const captionGroups = groupWordsIntoCaptions(
           words,
           globalStyle.maxWordsPerGroup
@@ -241,7 +250,7 @@ export default function Editor() {
         const result: TranscriptionResult = {
           language: data.language || "en",
           duration,
-          segments: parsedSegments,
+          segments,
           words,
           captionGroups,
         };

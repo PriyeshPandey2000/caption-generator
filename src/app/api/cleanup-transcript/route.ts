@@ -30,6 +30,36 @@ function errResponse(message: string, status = 400): NextResponse {
   return NextResponse.json({ error: message }, { status });
 }
 
+// No auth/session layer exists in this app (single-user, keyless), yet with a
+// shared server GROQ_API_KEY this route would let any caller spend the
+// account's paid Groq usage. A coarse in-memory per-IP quota is the only
+// enforceable client guard that fits the existing architecture — it bounds
+// abuse without bolting on a session system. On serverless it resets per
+// warm instance, but a simple scripted drain is still cut off well short of
+// meaningful spend.
+const CLEANUP_RATE_LIMIT = 20;
+const CLEANUP_RATE_WINDOW_MS = 60_000;
+const rateBuckets = new Map<string, { count: number; windowStart: number }>();
+
+function clientIp(request: NextRequest): string {
+  const cf = request.headers.get("cf-connecting-ip");
+  if (cf) return cf;
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return "unknown";
+}
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const bucket = rateBuckets.get(ip);
+  if (!bucket || now - bucket.windowStart > CLEANUP_RATE_WINDOW_MS) {
+    rateBuckets.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > CLEANUP_RATE_LIMIT;
+}
+
 // Silent fail-open contract: null/failed responses are indistinguishable to
 // the client's fail-safe from "keep the original transcript". The client
 // re-checks length defensively, so even a bug here can't desync timestamps.
@@ -49,6 +79,12 @@ export async function POST(request: NextRequest) {
     return errResponse("'words' must contain only non-empty strings");
   }
   const words = (input as string[]).map((w) => w.trim());
+
+  // Validate the payload first, then enforce the per-client quota before any
+  // Groq spend. Missing-key stays fail-open (no spend happens anyway).
+  if (isRateLimited(clientIp(request))) {
+    return errResponse("Too many cleanup requests — try again shortly.", 429);
+  }
 
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {

@@ -65,6 +65,12 @@ export function parseSegmentsToWords(
       start: w.start,
       end: w.end,
     }));
+    // Guardians: words with no segments is a legal response shape (Granularity
+    // pref is per-vendor), and the segment walk below would dereference
+    // parsedSegments[0] of an empty array.
+    if (parsedSegments.length === 0) {
+      return { words, parsedSegments };
+    }
     let segIdx = 0;
     for (const word of words) {
       while (
