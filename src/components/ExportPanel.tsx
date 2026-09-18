@@ -103,9 +103,6 @@ export default function ExportPanel() {
       setProgress("Loading video...");
       await ffmpeg.writeFile("input.mp4", await fetchFile(videoUrl));
 
-      const srtContent = wordsToSRT(transcription.words);
-      await ffmpeg.writeFile("captions.srt", new TextEncoder().encode(srtContent));
-
       // Build the SFX mix: one audio input per event, delayed/scaled/pitched to
       // its video-time slot, then amixed with the video's own audio. Consumes the
       // same SfxEvent data as the live engine — no audio capture.
@@ -114,7 +111,11 @@ export default function ExportPanel() {
       if (sfxOn) {
         setProgress("Loading sound effects...");
         const files = new Set(sfxEvents.map((e) => e.sound));
-        let idx = 1;
+        // ffmpeg inputs are ordered: 0 = styled stage, 1 = source video, and
+        // each SFX file after that. Chains must reference the SFX inputs from 2
+        // on — starting at 1 would collide with the source video's [1:a] used
+        // by [main] below and leave the SFX inputs unreferenced.
+        let idx = 2;
         for (const sound of files) {
           await ffmpeg.writeFile(`sfx_${sound}.mp3`, await fetchFile(`/sfx/${sound}.mp3`));
         }
@@ -132,25 +133,12 @@ export default function ExportPanel() {
       }
 
       const needsScale = meta.width > MAX_EXPORT_WIDTH;
-      const scaleFilter = needsScale ? `scale='min(${MAX_EXPORT_WIDTH},iw)':-2,` : "";
-
       const cropToPlatform = state.previewPlatform !== "none";
-      // Center-crop to the active platform's 9:16 feed frame so the exported
-      // file matches what the preview's `object-cover` 9:16 box shows. Crop
-      // whichever dimension the source over-provides relative to 9:16: trim
-      // width for sources wider than 9:16 (the common case), trim height for
-      // sources already narrower/taller than 9:16 (e.g. a 720x1600 capture) —
-      // an ffmpeg `if()` expression picks the branch since the source aspect
-      // ratio isn't known until runtime. Always-keep-height was a bug: it
-      // left narrower-than-9:16 sources completely uncropped.
-      const cropFilter = cropToPlatform
-        ? `crop=w='if(gt(iw/ih,9/16),trunc(ih*9/16/2)*2,iw)':h='if(gt(iw/ih,9/16),ih,trunc(iw*16/9/2)*2)':x='(iw-ow)/2':y='(ih-oh)/2',`
-        : "";
 
       // Effective output width/height: the fixed 1280 cap (or native), then
       // the platform crop applied to whichever dimension it affects — same
-      // branch logic as the ffmpeg filter above, so fontPx (libass output
-      // pixels) matches the frame the caption actually renders into.
+      // branch logic as the preview crop, so the hidden canvas we render the
+      // styled captions into matches the frame the user designed on.
       let outW = needsScale ? Math.min(MAX_EXPORT_WIDTH, meta.width) : meta.width;
       let outH = needsScale
         ? Math.round((meta.height * outW) / meta.width / 2) * 2
@@ -162,31 +150,64 @@ export default function ExportPanel() {
           outH = Math.floor((outW * 8) / 9) * 2;
         }
       }
-      const fontPx = Math.max(10, Math.min(48, Math.round(24 * (outW / MAX_EXPORT_WIDTH))))
+
+      // Render every frame exactly as the editor previews it — styled,
+      // animated, positioned captions + camera zoom — into an MP4 via
+      // WebCodecs (with a MediaRecorder WebM fallback where H.264 encode
+      // isn't available).
+      setProgress("Compositing captions...");
+      const { renderStyledVideo } = await import("@/core/export-renderer");
+      const styled = await renderStyledVideo({
+        videoUrl,
+        outW,
+        outH,
+        duration: meta.duration,
+        transcription: state.project.transcription as NonNullable<typeof transcription>,
+        globalStyle: state.project.globalStyle,
+        speakerStyles: state.project.speakerStyles,
+        groupLayouts: state.groupLayouts,
+        previewPlatform: state.previewPlatform,
+        onProgress: (fraction, message) => {
+          setProgress(`${message} …`);
+          if (fraction >= 1) console.log("[styled-export] done");
+        },
+      });
+      await ffmpeg.writeFile(styled.stage, new Uint8Array(await styled.blob.arrayBuffer()));
 
       // Compose the audio filtergraph: delay/scale/pitch each SFX into its
-      // video-time slot, then amix them over the video's own stereo audio.
+      // video-time slot, then amix them over the source video's own audio
+      // (input 1). The styled render carries no audio — it's video-only.
       let audioFilter: string | null = null;
       if (sfxOn) {
         const preMix = sfxChains.join(";");
-        const mixLabels = sfxChains.map((_, i) => `[fx${i + 1}]`).join("");
-        audioFilter = `[0:a]aformat=channel_layouts=stereo[main];${preMix};[main]${mixLabels}amix=inputs=${sfxEvents.length + 1}:duration=first:normalize=0[aout]`;
+        const mixLabels = sfxChains.map((_, i) => `[fx${i + 2}]`).join("");
+        audioFilter = `[1:a]aformat=channel_layouts=stereo[main];${preMix};[main]${mixLabels}amix=inputs=${sfxEvents.length + 1}:duration=first:normalize=0[aout]`;
       }
 
       const args = [
+        "-i", styled.stage,
         "-i", "input.mp4",
         ...sfxInputs,
-        "-t", String(MAX_EXPORT_DURATION_SEC),
-        "-vf", `${scaleFilter}${cropFilter}subtitles=captions.srt:force_style='FontSize=${fontPx},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2'`,
+        "-map", "0:v",
       ];
       if (audioFilter) {
-        args.push("-filter_complex", audioFilter, "-map", "0:v", "-map", "[aout]");
+        args.push("-filter_complex", audioFilter, "-map", "[aout]");
+      } else {
+        // Keep the source's audio track when SFX are off (optional map so a
+        // silent source doesn't abort the export).
+        args.push("-map", "1:a?");
       }
       args.push(
-        "-preset", "ultrafast",
-        "-b:v", "2500k",
-        "-maxrate", "3000k",
-        "-bufsize", "6000k",
+        ...(styled.usedFallback
+          ? [
+              "-c:v", "libx264", "-preset", "ultrafast", "-b:v", "2500k", "-maxrate", "3000k", "-bufsize", "6000k",
+              // MediaRecorder stamps webm frames with wall-clock capture time,
+              // so a slow paint loop silently lengthens the video and drifts it
+              // from the (real-time) source audio. Retime every frame onto the
+              // synthetic 30fps grid (same fps as the styled renderer).
+              "-vf", "setpts=N/(30*TB)",
+            ]
+          : ["-c:v", "copy"]),
         "-c:a", "aac",
         "-b:a", "128k",
         "output.mp4"
@@ -194,12 +215,8 @@ export default function ExportPanel() {
 
       setProgress(
         sfxOn
-          ? cropToPlatform
-            ? "Cropping 9:16, mixing sounds & burning captions..."
-            : "Mixing sounds & burning captions..."
-          : cropToPlatform
-            ? "Cropping 9:16 & burning captions..."
-            : "Burning in captions..."
+          ? "Mixing sounds & finalizing..."
+          : "Finalizing..."
       );
       await ffmpeg.exec(args);
 
