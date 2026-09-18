@@ -1,5 +1,6 @@
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
-import { paintExportFrame } from "./scene-renderer";
+import { paintExportFrame, VideoFrameSource } from "./scene-renderer";
+import { createBackgroundCompositor, BackgroundCompositor } from "./background-composite";
 import { GlobalStyle, PreviewPlatform, TranscriptionResult, WordStyle } from "./types";
 
 const MAX_EXPORT_DURATION_SEC = 90;
@@ -158,20 +159,56 @@ export async function renderStyledVideo(
 
   const totalFrames = Math.max(1, Math.round(duration * fps));
 
-  const codec = await pickAvcCodec(opts.outW, opts.outH, fps, bitrate);
-  if (codec && typeof VideoFrame !== "undefined") {
-    return renderWithWebCodecs(opts, video, canvas, codec, fps, bitrate, duration, totalFrames);
+  // Own compositor per export run (never the live-preview's segmenter
+  // singleton — see createSegmenter's docs in background-removal.ts). Only
+  // loaded when a background mode is actually selected, since it downloads
+  // the segmentation model.
+  const compositor =
+    opts.globalStyle.background.mode !== "none" ? await createBackgroundCompositor() : null;
+
+  try {
+    const codec = await pickAvcCodec(opts.outW, opts.outH, fps, bitrate);
+    if (codec && typeof VideoFrame !== "undefined") {
+      return await renderWithWebCodecs(
+        opts,
+        video,
+        canvas,
+        codec,
+        fps,
+        bitrate,
+        duration,
+        totalFrames,
+        compositor
+      );
+    }
+    return await renderWithMediaRecorder(opts, video, canvas, fps, duration, totalFrames, compositor);
+  } finally {
+    compositor?.dispose();
   }
-  return renderWithMediaRecorder(opts, video, canvas, fps, duration, totalFrames);
 }
 
-function paintFrame(canvas: HTMLCanvasElement, video: HTMLVideoElement, t: number, opts: StyledRenderOptions) {
+async function paintFrame(
+  canvas: HTMLCanvasElement,
+  video: HTMLVideoElement,
+  t: number,
+  opts: StyledRenderOptions,
+  compositor: BackgroundCompositor | null
+) {
+  let source: VideoFrameSource = video;
+  if (compositor) {
+    const composited = await compositor.renderFrame(
+      video,
+      opts.globalStyle.background,
+      Math.round(t * 1000)
+    );
+    if (composited) source = composited;
+  }
   paintExportFrame(canvas, {
     transcription: opts.transcription,
     globalStyle: opts.globalStyle,
     speakerStyles: opts.speakerStyles,
     groupLayouts: opts.groupLayouts,
-    video,
+    video: source,
     currentTime: t,
     outW: opts.outW,
     outH: opts.outH,
@@ -187,7 +224,8 @@ async function renderWithWebCodecs(
   fps: number,
   bitrate: number,
   duration: number,
-  totalFrames: number
+  totalFrames: number,
+  compositor: BackgroundCompositor | null
 ): Promise<StyledRenderResult> {
   const muxer = new Muxer({
     target: new ArrayBufferTarget(),
@@ -230,7 +268,7 @@ async function renderWithWebCodecs(
       throwEncodeError();
       const t = Math.min(i / fps, lastSafeT);
       await seekVideoTo(video, t);
-      paintFrame(canvas, video, t, opts);
+      await paintFrame(canvas, video, t, opts, compositor);
 
       const timestamp = Math.round(t * 1_000_000);
       let frame: VideoFrame;
@@ -271,7 +309,8 @@ async function renderWithMediaRecorder(
   canvas: HTMLCanvasElement,
   fps: number,
   duration: number,
-  totalFrames: number
+  totalFrames: number,
+  compositor: BackgroundCompositor | null
 ): Promise<StyledRenderResult> {
   const mimeCandidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
   const mimeType = mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
@@ -303,7 +342,7 @@ async function renderWithMediaRecorder(
       if (deadline > now) await sleep(deadline - now);
       const t = Math.min(i / fps, Math.max(0, duration - 1 / 1_000_000));
       await seekVideoTo(video, t);
-      paintFrame(canvas, video, t, opts);
+      await paintFrame(canvas, video, t, opts, compositor);
       track.requestFrame();
       opts.onProgress?.((i + 1) / totalFrames, `Capturing frame ${i + 1}/${totalFrames}`);
       if (i % 5 === 0) await sleep(0);

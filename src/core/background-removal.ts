@@ -9,20 +9,29 @@ const WASM_BASE_URL =
 const MODEL_ASSET_PATH =
   "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
 
+// Uncached — each call creates a fresh ImageSegmenter instance. VIDEO running
+// mode is stateful and assumes one continuous frame stream; callers that need
+// to segment a *different* video than the live editor preview (e.g. export,
+// which runs against its own detached <video> element while the live preview
+// may still be ticking) must not share the singleton below, or frames from
+// both streams interleave through one instance with undefined results.
+export function createSegmenter(): Promise<ImageSegmenter> {
+  return FilesetResolver.forVisionTasks(WASM_BASE_URL).then((vision) =>
+    ImageSegmenter.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: MODEL_ASSET_PATH,
+        delegate: "CPU",
+      },
+      runningMode: "VIDEO",
+      outputCategoryMask: false,
+      outputConfidenceMasks: true,
+    })
+  );
+}
+
 export function loadSegmenter(): Promise<ImageSegmenter> {
   if (!segmenterPromise) {
-    segmenterPromise = FilesetResolver.forVisionTasks(WASM_BASE_URL).then(
-      (vision) =>
-        ImageSegmenter.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MODEL_ASSET_PATH,
-            delegate: "CPU",
-          },
-          runningMode: "VIDEO",
-          outputCategoryMask: false,
-          outputConfidenceMasks: true,
-        })
-    );
+    segmenterPromise = createSegmenter();
   }
   return segmenterPromise;
 }

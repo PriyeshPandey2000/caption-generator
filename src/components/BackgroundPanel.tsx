@@ -28,8 +28,8 @@ export default function BackgroundPanel() {
       <div>
         <h3 className="text-sm font-semibold text-white mb-1">Background</h3>
         <p className="text-[10px] text-zinc-500">
-          Cuts out the subject and replaces what&apos;s behind them. Preview only for now — export
-          doesn&apos;t include this yet.
+          Cuts out the subject and replaces what&apos;s behind them. Included in your exported
+          video — resegmenting frame-by-frame adds noticeably to export time.
         </p>
       </div>
 
