@@ -221,6 +221,18 @@ export default function VideoPreview() {
                 const d = e.currentTarget.duration;
                 setDuration(Number.isFinite(d) && d > 0 ? d : 0);
                 measureSurface();
+                // When a replacement video loads while the store clock is at a
+                // nonzero playhead, the [currentTime, videoUrl] bridge above ran
+                // before the new duration existed and returned. Re-align the
+                // media now, or its first timeupdate would clobber the playhead.
+                const storeT = useEditorStore.getState().currentTime;
+                if (
+                  Number.isFinite(d) &&
+                  d > 0 &&
+                  Math.abs(e.currentTarget.currentTime - storeT) > 0.15
+                ) {
+                  e.currentTarget.currentTime = Math.min(storeT, d - 0.001);
+                }
               }}
               className={`w-full h-full ${previewPlatform !== "none" ? "object-cover" : "object-contain"}`}
               playsInline

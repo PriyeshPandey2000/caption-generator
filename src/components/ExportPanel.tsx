@@ -111,7 +111,11 @@ export default function ExportPanel() {
       if (sfxOn) {
         setProgress("Loading sound effects...");
         const files = new Set(sfxEvents.map((e) => e.sound));
-        let idx = 1;
+        // ffmpeg inputs are ordered: 0 = styled stage, 1 = source video, and
+        // each SFX file after that. Chains must reference the SFX inputs from 2
+        // on — starting at 1 would collide with the source video's [1:a] used
+        // by [main] below and leave the SFX inputs unreferenced.
+        let idx = 2;
         for (const sound of files) {
           await ffmpeg.writeFile(`sfx_${sound}.mp3`, await fetchFile(`/sfx/${sound}.mp3`));
         }
@@ -176,7 +180,7 @@ export default function ExportPanel() {
       let audioFilter: string | null = null;
       if (sfxOn) {
         const preMix = sfxChains.join(";");
-        const mixLabels = sfxChains.map((_, i) => `[fx${i + 1}]`).join("");
+        const mixLabels = sfxChains.map((_, i) => `[fx${i + 2}]`).join("");
         audioFilter = `[1:a]aformat=channel_layouts=stereo[main];${preMix};[main]${mixLabels}amix=inputs=${sfxEvents.length + 1}:duration=first:normalize=0[aout]`;
       }
 
@@ -195,7 +199,14 @@ export default function ExportPanel() {
       }
       args.push(
         ...(styled.usedFallback
-          ? ["-c:v", "libx264", "-preset", "ultrafast", "-b:v", "2500k", "-maxrate", "3000k", "-bufsize", "6000k"]
+          ? [
+              "-c:v", "libx264", "-preset", "ultrafast", "-b:v", "2500k", "-maxrate", "3000k", "-bufsize", "6000k",
+              // MediaRecorder stamps webm frames with wall-clock capture time,
+              // so a slow paint loop silently lengthens the video and drifts it
+              // from the (real-time) source audio. Retime every frame onto the
+              // synthetic 30fps grid (same fps as the styled renderer).
+              "-vf", "setpts=N/(30*TB)",
+            ]
           : ["-c:v", "copy"]),
         "-c:a", "aac",
         "-b:a", "128k",

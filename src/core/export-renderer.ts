@@ -44,18 +44,38 @@ function sleep(ms: number) {
 }
 
 function seekVideoTo(video: HTMLVideoElement, t: number): Promise<void> {
-  return new Promise<void>((resolve) => {
+  return new Promise<void>((resolve, reject) => {
     let settled = false;
-    const finish = () => {
-      if (!settled) {
-        settled = true;
-        resolve();
-      }
+    const onSeeked = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("seekerror", onSeekError);
+      resolve();
+    };
+    const onSeekError = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("seekerror", onSeekError);
+      reject(new Error("Video seek failed"));
     };
     const target = Math.min(Math.max(0, t), video.duration || t);
-    video.addEventListener("seeked", finish, { once: true });
+    // Don't resolve optimistically on timeout — painting a frame the video
+    // hasn't actually decoded to would encode a stale frame into the export.
+    // Fail loudly instead.
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("seekerror", onSeekError);
+      reject(new Error(`Video seek to ${target.toFixed(3)}s timed out`));
+    }, 1500);
+    video.addEventListener("seeked", onSeeked, { once: true });
+    video.addEventListener("seekerror", onSeekError, { once: true });
     video.currentTime = target;
-    setTimeout(finish, 500);
   });
 }
 
@@ -175,12 +195,15 @@ async function renderWithWebCodecs(
     fastStart: "in-memory",
   });
 
+  // VideoEncoder.error fires asynchronously; a throw there becomes an uncaught
+  // callback exception. Store it and surface it from the main loop / flush.
+  let encodeErr: unknown = null;
   const encoder = new VideoEncoder({
     output: (chunk, meta) => {
       muxer.addVideoChunk(chunk, meta ?? undefined);
     },
     error: (err) => {
-      throw err;
+      encodeErr = err;
     },
   });
   encoder.configure({
@@ -191,11 +214,20 @@ async function renderWithWebCodecs(
     framerate: fps,
   });
 
+  const throwEncodeError = () => {
+    if (encodeErr) {
+      throw new Error(
+        `VideoEncoder failed: ${encodeErr instanceof Error ? encodeErr.message : String(encodeErr)}`
+      );
+    }
+  };
+
   const lastSafeT = Math.max(0, duration - 1 / 1_000_000);
 
   try {
     for (let i = 0; i < totalFrames; i++) {
       aborted(opts.signal);
+      throwEncodeError();
       const t = Math.min(i / fps, lastSafeT);
       await seekVideoTo(video, t);
       paintFrame(canvas, video, t, opts);
@@ -218,6 +250,7 @@ async function renderWithWebCodecs(
     }
 
     await encoder.flush();
+    throwEncodeError();
   } finally {
     try {
       encoder.close();
@@ -243,7 +276,12 @@ async function renderWithMediaRecorder(
   const mimeCandidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
   const mimeType = mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
 
-  const stream = canvas.captureStream(fps);
+  // captureStream(0) + track.requestFrame() gives us one exact frame per paint
+  // (instead of `fps`-capped sampling on an internal timer); the ffmpeg pass
+  // retimes those frames with setpts=N/(fps*TB) so the webm duration equals the
+  // caption timeline regardless of how slow painting runs.
+  const stream = canvas.captureStream(0);
+  const track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
   const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
   const chunks: BlobPart[] = [];
   recorder.ondataavailable = (e) => {
@@ -266,6 +304,7 @@ async function renderWithMediaRecorder(
       const t = Math.min(i / fps, Math.max(0, duration - 1 / 1_000_000));
       await seekVideoTo(video, t);
       paintFrame(canvas, video, t, opts);
+      track.requestFrame();
       opts.onProgress?.((i + 1) / totalFrames, `Capturing frame ${i + 1}/${totalFrames}`);
       if (i % 5 === 0) await sleep(0);
     }

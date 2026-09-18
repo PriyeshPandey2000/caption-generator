@@ -70,9 +70,15 @@ export function resolveCanvasFontFamily(fontFamily: string): string {
       getComputedStyle(document.documentElement).getPropertyValue("--font-anton").trim() || "";
     resolvedAntonFamily = anton;
   }
+  // next/font already emits a quoted, comma-separated family list, e.g.
+  // `"Anton", "Anton Fallback"` — wrapping that whole value in another pair of
+  // quotes turns it into one bogus family name and the canvas falls through to
+  // Impact. Quote only a bare multi-word name.
+  if (!anton) return fontFamily.replace("var(--font-anton)", "Impact");
+  const needsQuotes = !/["',]/.test(anton) && /\s/.test(anton);
   return fontFamily.replace(
     "var(--font-anton)",
-    anton ? `"${anton}"` : "Impact"
+    needsQuotes ? `"${anton}"` : anton
   );
 }
 
