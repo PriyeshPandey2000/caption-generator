@@ -121,25 +121,29 @@ export default function Editor() {
         useEditorStore.getState().loadDemo();
       }
     });
-    // The persisted image URL was a blob: URL (safety-netted to mode "none" by
+    // The persisted image URL was a blob: URL (safety-netted to empty by
     // restorePersisted); the actual bytes live in IndexedDB. Recreate a fresh
-    // object URL so the image background survives the reload.
+    // object URL so the image background survives the reload — whenever a blob
+    // was persisted, regardless of the saved mode (an image picked earlier but
+    // a different mode active at save time must not lose the upload).
     const bg = saved?.globalStyle?.background;
-    const restoreImage =
-      bg?.mode === "image" &&
-      typeof bg.imageUrl === "string" &&
-      bg.imageUrl.startsWith("blob:");
+    const hadPersistedImage =
+      typeof bg?.imageUrl === "string" && bg.imageUrl.startsWith("blob:");
     loadBackgroundImageFromStorage().then((blob) => {
       if (cancelled) return;
       if (useEditorStore.getState().project.id !== loadProjectId) return;
-      if (!restoreImage || !blob) return;
+      if (!hadPersistedImage || !blob) return;
       const current = useEditorStore.getState().project.globalStyle.background;
-      // Only fill the gap the dead blob left behind: an in-session re-pick or
-      // a manual mode change after load wins over the persisted image.
-      if (current.mode !== "none" || current.imageUrl) return;
+      // Only fill the gap the dead blob left behind: an in-session re-pick
+      // after load wins over the persisted image.
+      if (current.imageUrl) return;
       const url = URL.createObjectURL(blob);
       useEditorStore.getState().setBackgroundImage(url);
-      useEditorStore.getState().setBackgroundMode("image");
+      // Reflect the saved active mode only when it was "image"; otherwise the
+      // restored mode (blur/color/none) stays and the image is just available.
+      if (bg?.mode === "image" && current.mode === "none") {
+        useEditorStore.getState().setBackgroundMode("image");
+      }
     });
     return () => {
       cancelled = true;

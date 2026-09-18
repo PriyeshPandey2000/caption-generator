@@ -1134,6 +1134,13 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   restorePersisted: (data) => {
     suppressHistory = true;
+    // Restoring over an in-session background orphans the current blob URL
+    // (the image it points at is replaced wholesale) — revoke it up front,
+    // mirroring newProject, so the browser can release the memory.
+    const orphanedBgUrl = useEditorStore.getState().project.globalStyle.background.imageUrl;
+    if (orphanedBgUrl && orphanedBgUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(orphanedBgUrl);
+    }
     // A background image picked last session is stored as a blob: URL in the
     // JSON — but blob URLs are per-document and dead after reload. The live
     // bytes live in IndexedDB (see setBackgroundImageFile); here we only need
@@ -1227,6 +1234,10 @@ export const useEditorStore = create<EditorState>((set) => ({
   newProject: () => {
     suppressHistory = true;
     ++videoSaveGeneration;
+    // Bump the background save generation too: a pending image save from the
+    // previous project would otherwise report its stale failure onto the new
+    // (empty) project after this reset clears the store.
+    ++backgroundImageSaveGeneration;
     set(() => {
       if (typeof window !== "undefined") {
         clearProjectFromStorage();

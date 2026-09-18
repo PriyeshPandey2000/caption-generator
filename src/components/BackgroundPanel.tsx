@@ -1,8 +1,19 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { BackgroundMode } from "@/core/types";
+
+// Canvas rejects invalid fillStyle assignments silently, so an arbitrary string
+// reaching background.color would show a stale color in the preview while the
+// control displays something else. Commit only values the renderer accepts.
+function isValidColor(value: string): boolean {
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return false;
+  ctx.fillStyle = "#000000";
+  ctx.fillStyle = value;
+  return ctx.fillStyle !== "#000000";
+}
 
 const MODES: { id: BackgroundMode; label: string }[] = [
   { id: "none", label: "None" },
@@ -22,6 +33,18 @@ export default function BackgroundPanel() {
     (file: File) => setBackgroundImageFile(file),
     [setBackgroundImageFile]
   );
+
+  // Transient input for the color text box: typed text is held here and only
+  // committed to the store once it parses as a color, so the preview never
+  // sees an invalid value mid-typing. When the store color changes from
+  // elsewhere (swatch, presets) the draft follows via render-time adjustment
+  // rather than an effect.
+  const [colorDraft, setColorDraft] = useState(background.color);
+  const [lastColor, setLastColor] = useState(background.color);
+  if (background.color !== lastColor) {
+    setLastColor(background.color);
+    setColorDraft(background.color);
+  }
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -76,8 +99,12 @@ export default function BackgroundPanel() {
           />
           <input
             type="text"
-            value={background.color}
-            onChange={(e) => setBackgroundColor(e.target.value)}
+            value={colorDraft}
+            onChange={(e) => {
+              const v = e.target.value;
+              setColorDraft(v);
+              if (isValidColor(v)) setBackgroundColor(v);
+            }}
             className="flex-1 bg-zinc-800 text-xs text-white rounded px-2 py-1.5 outline-none focus:ring-1 focus:ring-[#00FF66]/50"
           />
         </div>

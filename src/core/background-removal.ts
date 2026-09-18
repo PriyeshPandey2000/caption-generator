@@ -4,8 +4,11 @@ import { ImageSegmenter, FilesetResolver } from "@mediapipe/tasks-vision";
 // a user actually picks a background mode, not on every editor load.
 let segmenterPromise: Promise<ImageSegmenter> | null = null;
 
+// Must match the installed @mediapipe/tasks-vision version — FilesetResolver
+// derives the exact WASM filenames (vision_wasm_internal.* etc.) from the base
+// URL, and those change between releases.
 const WASM_BASE_URL =
-  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm";
 const MODEL_ASSET_PATH =
   "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
 
@@ -31,7 +34,13 @@ export function createSegmenter(): Promise<ImageSegmenter> {
 
 export function loadSegmenter(): Promise<ImageSegmenter> {
   if (!segmenterPromise) {
-    segmenterPromise = createSegmenter();
+    // A failed (rejected) load must not be cached forever, or every later
+    // mode switch would resurface the stale rejection instead of retrying —
+    // clear the slot before rethrowing so the next call starts fresh.
+    segmenterPromise = createSegmenter().catch((err) => {
+      segmenterPromise = null;
+      throw err;
+    });
   }
   return segmenterPromise;
 }
@@ -49,11 +58,13 @@ function nextTimestamp(requested: number): number {
   return ts;
 }
 
-// The single-class selfie segmenter's confidenceMasks[0] — trying it
-// un-inverted first: the previous "invert on read" guess had the effect
-// landing on the subject instead of the background, the opposite of what
-// this repo's convention needs (1 = person). Verify visually after this
-// change; flip back if the cutout is still backwards.
+// selfie_segmenter (the ImageSegmenter build, float16) emits a SINGLE
+// confidence channel, and channel 0 IS the person: verified live on a portrait
+// frame (mean ~0.94 on the subject, ~0.0 on the background). Keep it
+// un-inverted — a previous "invert on read" attempt put the backdrop on the
+// subject, the opposite of what this repo's convention needs (1 = person).
+// (The two-channel background/person ordering is the *older* selfie
+// segmentation solution, not this ImageSegmenter model build.)
 let warnedFrameNotReady = false;
 export function segmentFrame(
   segmenter: ImageSegmenter,

@@ -241,7 +241,7 @@ function computeDims(vw: number, vh: number): { w: number; h: number } {
 let workCanvas: HTMLCanvasElement | null = null;
 
 function frameToTensor(
-  video: HTMLVideoElement,
+  frameSource: HTMLVideoElement | HTMLCanvasElement,
   w: number,
   h: number
 ): ort.Tensor {
@@ -250,7 +250,7 @@ function frameToTensor(
   workCanvas.height = h;
   const ctx = workCanvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("no 2d context");
-  ctx.drawImage(video, 0, 0, w, h);
+  ctx.drawImage(frameSource, 0, 0, w, h);
   const px = ctx.getImageData(0, 0, w, h).data;
   const n = w * h;
   const data = new Float32Array(n * 3);
@@ -267,16 +267,19 @@ function zeroState(): ort.Tensor {
   return new ort.Tensor("float32", new Float32Array(1), [1, 1, 1, 1]);
 }
 
+// Accepts either the live <video> or a canvas snapshot of it. Callers that
+// composite after the async inference MUST pass a snapshot captured before
+// awaiting so the mask and the rendered frame come from the same source.
 export async function segmentFrameRvm(
   segmenter: RvmSegmenter,
-  video: HTMLVideoElement
+  frameSource: HTMLVideoElement | HTMLCanvasElement
 ): Promise<{ mask: Float32Array; width: number; height: number } | null> {
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
+  const vw = "videoWidth" in frameSource ? frameSource.videoWidth : frameSource.width;
+  const vh = "videoHeight" in frameSource ? frameSource.videoHeight : frameSource.height;
   if (!vw || !vh) return null;
 
   const { w, h } = computeDims(vw, vh);
-  const src = frameToTensor(video, w, h);
+  const src = frameToTensor(frameSource, w, h);
   const rec = segmenter.states;
 
   const feeds: Record<string, ort.Tensor> = {

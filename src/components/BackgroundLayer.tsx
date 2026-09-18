@@ -36,6 +36,7 @@ export default function BackgroundLayer({
   const rvmErrorRef = useRef(false);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
   const bgImageUrlRef = useRef<string | null>(null);
+  const snapRef = useRef<HTMLCanvasElement | null>(null);
 
   const background = useEditorStore((s) => s.project.globalStyle.background);
   const isPlaying = useEditorStore((s) => s.isPlaying);
@@ -63,6 +64,9 @@ export default function BackgroundLayer({
           if (!cancelled) rvmRef.current = seg;
         })
         .catch((err) => {
+          // rvmApiRef was assigned before the loader resolved; a failed load
+          // must clear it or the guard above blocks every later retry.
+          rvmApiRef.current = null;
           if (cancelled) return;
           console.error("RVM background removal model failed to load:", err);
           setError(
@@ -96,9 +100,17 @@ export default function BackgroundLayer({
     if (background.mode !== "image" || !background.imageUrl) return;
     if (bgImageUrlRef.current === background.imageUrl && bgImageRef.current) return;
     const img = new Image();
-    img.src = background.imageUrl;
+    img.onload = () => {
+      // A first paused draw can run before the image decodes (black backdrop)
+      // and record the playhead, gating the redraw. Nudge the gate so the next
+      // tick recomposites with the freshly loaded image — but only when this
+      // is still the active image; a late callback from a replaced one must
+      // not invalidate the current frame.
+      if (bgImageRef.current === img) lastDrawnTimeRef.current = null;
+    };
     bgImageRef.current = img;
     bgImageUrlRef.current = background.imageUrl;
+    img.src = background.imageUrl;
   }, [background.mode, background.imageUrl]);
 
   useEffect(() => {
@@ -117,7 +129,7 @@ export default function BackgroundLayer({
     // MediaPipe hands it the feathered mask, RVM the raw alpha matte.
     const drawMaskTail = (
       ctx: CanvasRenderingContext2D,
-      video: HTMLVideoElement,
+      video: HTMLVideoElement | HTMLCanvasElement,
       w: number,
       h: number,
       mask: Float32Array,
@@ -185,11 +197,22 @@ export default function BackgroundLayer({
       const last = lastCapturedTimeRef.current;
       if (last !== null && (t < last - 0.05 || t > last + 0.6)) rvm.reset();
       lastCapturedTimeRef.current = t;
+      // Capture the frame ONCE, before the (async, slow) inference. The mask
+      // is computed from this snapshot, and the composite draws from the same
+      // snapshot — reading the live <video> again after the await would
+      // composite a different frame than the mask was ever computed for.
+      if (!snapRef.current) snapRef.current = document.createElement("canvas");
+      const snap = snapRef.current;
+      snap.width = w;
+      snap.height = h;
+      const snapCtx = snap.getContext("2d");
+      if (!snapCtx) return;
+      snapCtx.drawImage(video, 0, 0, w, h);
       rvmBusyRef.current = true;
       try {
-        const seg = await api.segmentFrameRvm(rvm, video);
+        const seg = await api.segmentFrameRvm(rvm, snap);
         if (!seg) return;
-        drawMaskTail(ctx, video, w, h, seg.mask, seg.width, seg.height);
+        drawMaskTail(ctx, snap, w, h, seg.mask, seg.width, seg.height);
         lastDrawnTimeRef.current = t;
       } catch (err) {
         rvmErrorRef.current = true;

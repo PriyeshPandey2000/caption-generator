@@ -6,13 +6,14 @@ Paste everything below to the agent doing this work. It's self-contained.
 
 ## Context — what already exists
 
-This is `caption-generator` (Next.js 16, TypeScript, Zustand store), a browser-based caption/video editor. On branch `feature/background-removal`, a **preview-only background removal feature** already exists and works:
+This is `caption-generator` (Next.js 16, TypeScript, Zustand store), a browser-based caption/video editor. On branch `feature/background-removal`, a **background removal feature** already exists and works in both the preview and the styled export:
 
-- `src/core/background-removal.ts` — loads a MediaPipe Tasks Vision `ImageSegmenter` (the single-class `selfie_segmenter` model), lazy-loaded singleton, `delegate: "CPU"` (important — see Gotchas below). Exposes `segmentFrame(segmenter, video, timestampMs) -> { mask: Float32Array, width: number, height: number } | null`, where `mask` is a per-pixel confidence value in `[0,1]`, `1 = person`.
+- `src/core/background-removal.ts` — loads a MediaPipe Tasks Vision `ImageSegmenter` (the single-class `selfie_segmenter` model), lazy-loaded singleton, `delegate: "CPU"` (important — see Gotchas below). Exposes `segmentFrame(segmenter, video, timestampMs) -> { mask: Float32Array, width: number, height: number } | null`, where `mask` is a per-pixel confidence value in `[0,1]`, `1 = person` (`confidenceMasks[0]` is the person channel for this model build — verified live).
 - `src/core/temporal-smoothing.ts` — model-agnostic post-processing on that mask:
   - `smoothMaskTemporal(prevMask, currentMask, alpha)` — exponential moving average across frames, kills flicker.
   - `featherMask(mask, width, height, radiusPx)` — box blur on the alpha channel, softens the "paper cutout" hard edge.
-- `src/components/BackgroundLayer.tsx` — the compositor. Renders a `<canvas>` sibling to the real `<video>` element. Each `requestAnimationFrame` tick (only while playing): captures a frame, segments it, applies temporal smoothing + feathering, composites the subject over the chosen background (blur of original / solid color / static image) using canvas `destination-in` compositing. Mirrors an existing camera-zoom rAF pattern already in `VideoPreview.tsx` for consistency.
+- `src/components/BackgroundLayer.tsx` — the compositor. Renders a `<canvas>` sibling to the real `<video>` element. Each `requestAnimationFrame` tick (while playing, plus a paused redraw when the playhead or background settings change): captures a frame, segments it, applies temporal smoothing + feathering, composites the subject over the chosen background (blur of original / solid color / static image) using canvas `destination-in` compositing. Mirrors an existing camera-zoom rAF pattern already in `VideoPreview.tsx` for consistency. The RVM path snapshots the frame once before inference so the mask and the composite come from the same frame.
+- `src/core/background-composite.ts` — the shared, export-side compositor: `createBackgroundCompositor()` wraps the same segmentation + compositing behind a `renderFrame(video, settings, timestampMs)` used by `export-renderer.ts`.
 - `src/components/BackgroundPanel.tsx` — UI: None/Blur/Color/Image mode buttons, wired as a third tab next to "Style"/"Presets" in the editor.
 - `src/core/types.ts` / `src/store/editor-store.ts` — `BackgroundSettings` on `GlobalStyle`, store actions `setBackgroundMode` / `setBackgroundColor` / `setBackgroundImage` / `setBackgroundBlurAmount`, following the exact same pattern as the existing `SfxSettings` in the same files (copy that pattern for anything new).
 
@@ -42,9 +43,9 @@ Build RVM as an **alternate, swappable segmentation backend** — do NOT replace
 
 ## Explicitly out of scope — do not touch
 
-- **Export.** The exported MP4 does not include any background removal yet (baseline or RVM). `ExportPanel.tsx`'s export is a single native `ffmpeg.wasm` filter-graph pass with zero JS-side per-frame processing today — there is nothing to hook into here, and building that pipeline is separate, larger, already-scoped work. Do not attempt it.
+- **Export internals.** Background removal already flows into the export via `background-composite.ts` + `export-renderer.ts` (one `renderFrame` per output frame). This task is a *preview* backend swap; don't restructure the export path or the `background-composite.ts` contract to accommodate RVM — keep `segmentFrameRvm` interface-shaped like `segmentFrame` so the compositor can adopt it without an export rewrite.
 - Do not modify `background-removal.ts`, `temporal-smoothing.ts`'s existing exports, or the MediaPipe path in `BackgroundLayer.tsx` except to add the new backend alongside it.
-- Do not touch anything about captions, transcription, dictionary, or export pipelines — unrelated systems in this repo.
+- Do not touch anything about captions, transcription, dictionary, or the rest of the export pipelines — unrelated systems in this repo.
 
 ## Verification — how to know if it's actually better
 

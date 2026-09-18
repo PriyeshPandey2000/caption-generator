@@ -201,7 +201,32 @@ async function paintFrame(
       opts.globalStyle.background,
       Math.round(t * 1000)
     );
-    if (composited) source = composited;
+    if (composited) {
+      source = composited;
+    } else {
+      // A null composite usually means the frame had not finished decoding
+      // the instant a seek landed (videoWidth/videoHeight still 0). Encoding
+      // the raw video here would flash the unprocessed frame into the export,
+      // so retry briefly before failing the export loudly.
+      let recovered = false;
+      for (let attempt = 0; attempt < 5 && !recovered; attempt++) {
+        await sleep(50);
+        const retried = await compositor.renderFrame(
+          video,
+          opts.globalStyle.background,
+          Math.round(t * 1000)
+        );
+        if (retried) {
+          source = retried;
+          recovered = true;
+        }
+      }
+      if (!recovered) {
+        throw new Error(
+          `Background compositing failed at ${t.toFixed(3)}s — video frame never became ready`
+        );
+      }
+    }
   }
   paintExportFrame(canvas, {
     transcription: opts.transcription,
