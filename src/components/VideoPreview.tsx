@@ -7,13 +7,17 @@ import TransportControls from "./TransportControls";
 import PlatformPreviewOverlay, { PlatformPreviewToggle } from "./PlatformPreviewOverlay";
 import { sampleZoom } from "@/core/zoom";
 import { sfxEngine } from "@/core/audio";
+import { EXPORT_DESIGN_WIDTH } from "@/core/scene-renderer";
 
 export default function VideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const zoomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [duration, setDuration] = useState(0);
-  const [frameRatio, setFrameRatio] = useState(1);
+  // Live preview surface (container rect + source aspect once the video
+  // loads). Drives CaptionOverlay's scaleFactor so the on-screen caption size
+  // tracks the export's fixed design surface (see captionScale below).
+  const [surface, setSurface] = useState<{ w: number; h: number; aspect: number } | null>(null);
   const previewPlatform = useEditorStore((s) => s.previewPlatform);
   const setPreviewPlatform = useEditorStore((s) => s.setPreviewPlatform);
   const videoUrl = useEditorStore((s) => s.videoUrl);
@@ -66,6 +70,23 @@ export default function VideoPreview() {
     []
   );
 
+  // Bridge every seek surface (timeline scrubber, playhead drag, word-block
+  // clicks, transcript clicks, search jump) to the real <video>: those paths
+  // only write the store clock, so without this pressing play would resume
+  // from the video's own stale position and the first timeupdate would snap
+  // the playhead back from where the user clicked. During playback the store
+  // clock tracks video.currentTime via timeupdate, so the drift stays near
+  // zero and this no-ops — but a scrub mid-playback still re-seeks the video.
+  const currentTime = useEditorStore((s) => s.currentTime);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl) return;
+    if (!Number.isFinite(video.duration)) return;
+    if (Math.abs(video.currentTime - currentTime) > 0.15) {
+      video.currentTime = currentTime;
+    }
+  }, [currentTime, videoUrl]);
+
   const handleVideoClick = useCallback(() => {
     handlePlayPause();
   }, [handlePlayPause]);
@@ -79,25 +100,33 @@ export default function VideoPreview() {
     return () => video.removeEventListener("ended", handleEnded);
   }, [setIsPlaying]);
 
-  // Measure the preview surface so captions scale with the rendered frame:
-  // when a platform crop is active the frame is 9:16, so its width is
-  // (9/16 * height) instead of the full container width. The ratio feeds
-  // CaptionOverlay's scaleFactor so typed-point sizes stay proportional to
-  // the narrower portrait canvas instead of overflowing it.
+  // Measure the preview surface so captions scale with the rendered frame AND
+  // match the export's caption ratio. The export always sizes captions as
+  // `designPx / 1280` of the output frame width (EXPORT_DESIGN_WIDTH), no
+  // matter the resolution or crop — so to reproduce that ratio on screen the
+  // preview must scale captions by `displayedVideoWidth / 1280`, not `1` (None)
+  // and not `portraitW/containerW`. `displayedVideoWidth` is the 9:16 box width
+  // when a platform crop is active, else the object-contain fit of the video
+  // (which can be narrower than the container for letterboxed portrait clips).
+  const measureSurface = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const v = videoRef.current;
+    const aspect =
+      v && v.videoWidth > 0 && v.videoHeight > 0 ? v.videoWidth / v.videoHeight : 16 / 9;
+    setSurface({ w: rect.width, h: rect.height, aspect });
+  }, []);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const measure = () => {
-      const rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
-      const portraitW = Math.min(rect.height * (9 / 16), rect.width);
-      setFrameRatio(portraitW / rect.width);
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
+    measureSurface();
+    const ro = new ResizeObserver(measureSurface);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [measureSurface, videoUrl]);
 
   useEffect(() => {
     const handleKeydown = (e: KeyboardEvent) => {
@@ -157,7 +186,16 @@ export default function VideoPreview() {
 
   if (!videoUrl) return null;
 
-  const captionScale = previewPlatform !== "none" ? frameRatio : 1;
+  const displayedVideoWidth = surface
+    ? previewPlatform !== "none"
+      ? Math.min(surface.h * (9 / 16), surface.w)
+      : Math.min(surface.w, surface.h * surface.aspect)
+    : 0;
+  // Scale captions as `designPx / 1280` of the rendered frame width — the same
+  // ratio the export always produces (its outW/1280 scaleFactor cancels with
+  // the output width). Lets the preview reproduce the export at any window size:
+  // (designPx * displayedW/1280) / displayedW == designPx/1280.
+  const captionScale = surface ? displayedVideoWidth / EXPORT_DESIGN_WIDTH : 1;
 
   return (
     <div className="w-full h-full flex flex-col gap-2">
@@ -182,6 +220,7 @@ export default function VideoPreview() {
               onLoadedMetadata={(e) => {
                 const d = e.currentTarget.duration;
                 setDuration(Number.isFinite(d) && d > 0 ? d : 0);
+                measureSurface();
               }}
               className={`w-full h-full ${previewPlatform !== "none" ? "object-cover" : "object-contain"}`}
               playsInline
