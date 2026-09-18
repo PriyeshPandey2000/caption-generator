@@ -61,7 +61,10 @@ export default function BackgroundLayer({
           return mod.loadRvmSegmenter();
         })
         .then((seg) => {
-          if (!cancelled) rvmRef.current = seg;
+          if (!cancelled) {
+            rvmRef.current = seg;
+            lastDrawnTimeRef.current = null;
+          }
         })
         .catch((err) => {
           // rvmApiRef was assigned before the loader resolved; a failed load
@@ -81,7 +84,12 @@ export default function BackgroundLayer({
     if (segmenterRef.current) return;
     loadSegmenter()
       .then((seg) => {
-        if (!cancelled) segmenterRef.current = seg;
+        if (!cancelled) {
+          segmenterRef.current = seg;
+          // Invalidate the last-drawn gate so the very next tick composits
+          // immediately: the raw passthrough may hold the same playhead.
+          lastDrawnTimeRef.current = null;
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -235,9 +243,6 @@ export default function BackgroundLayer({
       // the playhead actually moved — the loop keeps running, but drawing the
       // same frame on every RAF tick would be free model work for nothing.
       if (paused && lastDrawnTimeRef.current === frameTime) return;
-      const segmenter = segmenterRef.current;
-      const rvm = rvmRef.current;
-      if (!segmenter && !rvm) return;
       if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
       const w = video.videoWidth;
@@ -249,21 +254,38 @@ export default function BackgroundLayer({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      if (rvm) {
+      const segmenter = segmenterRef.current;
+      const rvm = rvmRef.current;
+
+      // RVM backend: async + stateful, draws through runRvmTick once a mask
+      // lands. While busy, not loaded, or after a fatal error, fall through
+      // to the raw frame below so the preview is never black.
+      if (rvm && !rvmBusyRef.current && !rvmErrorRef.current) {
         void runRvmTick(ctx, video, w, h);
         return;
       }
-      if (!segmenter) return;
 
-      const seg = segmentFrame(segmenter, video, performance.now());
-      if (!seg) return;
-      const { mask, width: mw, height: mh } = seg;
-
-      const smoothed = smoothMaskTemporal(prevMaskRef.current, mask, 0.5);
-      prevMaskRef.current = smoothed;
-      const feathered = featherMask(smoothed, mw, mh, 2);
-
-      drawMaskTail(ctx, video, w, h, feathered, mw, mh);
+      // Segmentation backend (MediaPipe WASM). While the model is loading or
+      // segmentFrame hasn't produced a mask for this frame yet (first-frame
+      // warmup), paint the raw video frame — the real <video> is opacity-0
+      // whenever a background mode is active, so without this fallback a
+      // restored project would "lose" its video until the model finishes.
+      if (segmenter) {
+        const seg = segmentFrame(segmenter, video, performance.now());
+        if (seg) {
+          const { mask, width: mw, height: mh } = seg;
+          const smoothed = smoothMaskTemporal(prevMaskRef.current, mask, 0.5);
+          prevMaskRef.current = smoothed;
+          const feathered = featherMask(smoothed, mw, mh, 2);
+          drawMaskTail(ctx, video, w, h, feathered, mw, mh);
+          lastDrawnTimeRef.current = frameTime;
+          return;
+        }
+      }
+      // Model still loading, or segmentation produced no mask for this frame
+      // (first-frame warmup) — paint the raw frame so the opacity-0 <video>
+      // never leaves the preview black.
+      ctx.drawImage(video, 0, 0, w, h);
       lastDrawnTimeRef.current = frameTime;
     };
 

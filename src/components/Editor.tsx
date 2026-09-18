@@ -67,10 +67,22 @@ export default function Editor() {
   // create a *new* transcription (upload, demo) set this true themselves, so
   // that flow goes straight through once transcription resolves.
   const [entered, setEntered] = useState(false);
+  const [restorePending, setRestorePending] = useState(() => {
+    // Replicates the mount effect's synchronous read: a project whose
+    // transcript was restored is a project whose video blob is about to be
+    // read back from IndexedDB asynchronously. From the very first render the
+    // editor knows to hold the "Restoring your video…" state until that read
+    // settles instead of falling through to the captions-only surface. (Same
+    // localStorage-in-initializer pattern as the apiKey state above.)
+    if (typeof window === "undefined") return false;
+    const saved = loadProjectFromStorage();
+    return !!(saved && saved.transcription);
+  });
 
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const setVideoFile = useEditorStore((s) => s.setVideoFile);
   const transcription = useEditorStore((s) => s.project.transcription);
+  const demoMode = useEditorStore((s) => s.project.demoMode);
   const dictionary = useEditorStore((s) => s.project.dictionary);
   const isTranscribing = useEditorStore((s) => s.project.isTranscribing);
   const error = useEditorStore((s) => s.project.error);
@@ -101,6 +113,9 @@ export default function Editor() {
     const saved = loadProjectFromStorage();
     if (saved && saved.transcription) {
       restorePersisted(saved);
+      // restorePending was seeded from the same read in its useState
+      // initializer, so the editor already holds "Restoring your video…"
+      // while the async video-blob read below settles.
     }
     // Capture the generation this restore belongs to. If the user starts a New
     // Project (newProject swaps in a fresh project.id) while the IndexedDB read
@@ -126,6 +141,10 @@ export default function Editor() {
       } else if (saved?.demoMode) {
         useEditorStore.getState().loadDemo();
       }
+      // The read settled: either the video (or demo video) is attached, or the
+      // project genuinely has no video to restore. Release the loading state
+      // so the editor resolves to its real fallback instead of spinning.
+      setRestorePending(false);
     });
     // The persisted image URL was a blob: URL (safety-netted to empty by
     // restorePersisted); the actual bytes live in IndexedDB. Recreate a fresh
@@ -357,6 +376,7 @@ export default function Editor() {
               clearProjectFromStorage();
               newProject();
               setEntered(false);
+              setRestorePending(false);
             }}
             title="Start over — clears the saved project"
             className="h-7 px-3 text-white bg-transparent border border-white/15 text-xs rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
@@ -432,6 +452,7 @@ export default function Editor() {
                           clearProjectFromStorage();
                           newProject();
                           setEntered(false);
+                          setRestorePending(false);
                         }}
                         className="text-xs text-zinc-400 hover:text-white transition-colors"
                       >
@@ -478,8 +499,22 @@ export default function Editor() {
               <div className="relative w-full h-full">
                 {videoUrl ? (
                   <VideoPreview />
+                ) : restorePending ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-zinc-950 rounded-lg">
+                    <div className="w-8 h-8 border-2 border-[#00FF66] border-t-transparent rounded-full animate-spin" />
+                    <p className="text-sm text-zinc-300">Restoring your video…</p>
+                    <p className="text-xs text-zinc-500">
+                      Pulling the file back from local storage
+                    </p>
+                  </div>
                 ) : (
                   <div className="w-full h-full flex flex-col gap-2">
+                    {transcription && !demoMode && (
+                      <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-center">
+                        Your video could not be restored from local storage &mdash; drop it
+                        again and the captions will stay in sync.
+                      </div>
+                    )}
                     <div
                       ref={demoSurfaceRef}
                       className="relative flex-1 min-h-0 bg-zinc-950 rounded-lg overflow-hidden flex items-center justify-center"
