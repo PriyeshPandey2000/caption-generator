@@ -1,0 +1,513 @@
+import {
+  CaptionGroup,
+  GlobalStyle,
+  PreviewPlatform,
+  TranscriptionResult,
+  Word,
+  WordStyle,
+} from "./types";
+import { resolveWordStyle, MIN_CAPTION_Y, MAX_CAPTION_Y } from "./styles";
+import { sampleZoom } from "./zoom";
+
+// The width (CSS px) every caption-metric in the editor is designed against.
+// Live preview on a ~1280px-wide surface renders 1:1; the export scales by
+// outW/1280 so typed sizes, strokes and shadows land at the same proportions
+// on the larger rendered frame.
+export const EXPORT_DESIGN_WIDTH = 1280;
+
+// Matches WordSpan's `exit.duration || 120` fallback and CaptionOverlay's
+// EXIT_FADE_DEFAULT_DURATION_MS so the active-group grace window and the
+// exported fade can never drift apart.
+export const EXIT_FADE_DEFAULT_DURATION_MS = 120;
+
+// Mirror of Tailwind classes on the caption row: `gap-x-2` (8px) between
+// words and `gap-y-1` (4px) between lines. Kept unscaled — the DOM gap is a
+// fixed 8/4 CSS px regardless of canvas width.
+const GAP_X = 8;
+const GAP_Y = 4;
+
+export interface GroupLayoutInput {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+// Direct port of CaptionOverlay's active-group lookup: a group's window stays
+// open a touch past g.end to cover the last word's exit-fade, but never past
+// the next group's start, plus the closing-instant exception for the last group.
+export function findActiveCaptionGroup(
+  transcription: TranscriptionResult,
+  globalStyle: GlobalStyle,
+  currentTime: number
+): CaptionGroup | null {
+  const groups = transcription.captionGroups;
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const lastWordId = g.wordIds[g.wordIds.length - 1];
+    const lastWord = lastWordId
+      ? transcription.words.find((w) => w.id === lastWordId)
+      : undefined;
+    const exit = lastWord?.animation?.exit || globalStyle.motion.exit;
+    const exitDurationMs = exit ? exit.duration || EXIT_FADE_DEFAULT_DURATION_MS : 0;
+    const nextStart = groups[i + 1]?.start ?? Infinity;
+    const graceEnd = Math.min(g.end + exitDurationMs / 1000, nextStart);
+    if (currentTime >= g.start && currentTime < graceEnd) return g;
+  }
+  const last = groups[groups.length - 1];
+  if (last && currentTime === last.end) return last;
+  return null;
+}
+
+let resolvedAntonFamily: string | null = null;
+
+/** Replaces Next's `var(--font-anton)` with the resolved webfont family name so
+ * canvas can reference the loaded font face directly. Falls back to Impact if
+ * the variable can't be read (e.g. headless). */
+export function resolveCanvasFontFamily(fontFamily: string): string {
+  let anton = resolvedAntonFamily;
+  if (anton === null && typeof document !== "undefined") {
+    anton =
+      getComputedStyle(document.documentElement).getPropertyValue("--font-anton").trim() || "";
+    resolvedAntonFamily = anton;
+  }
+  // next/font already emits a quoted, comma-separated family list, e.g.
+  // `"Anton", "Anton Fallback"` — wrapping that whole value in another pair of
+  // quotes turns it into one bogus family name and the canvas falls through to
+  // Impact. Quote only a bare multi-word name.
+  if (!anton) return fontFamily.replace("var(--font-anton)", "Impact");
+  const needsQuotes = !/["',]/.test(anton) && /\s/.test(anton);
+  return fontFamily.replace(
+    "var(--font-anton)",
+    needsQuotes ? `"${anton}"` : anton
+  );
+}
+
+export function applyTextTransform(
+  text: string,
+  transform?: WordStyle["textTransform"]
+): string {
+  switch (transform ?? "none") {
+    case "uppercase":
+      return text.toUpperCase();
+    case "lowercase":
+      return text.toLowerCase();
+    case "capitalize":
+      return text.replace(/(^|[\s-])(\p{L})/gu, (_, sep, ch) => sep + ch.toUpperCase());
+    default:
+      return text;
+  }
+}
+
+export interface WordVisuals {
+  text: string;
+  fontFamily: string;
+  fontWeight: number;
+  fontPx: number;
+  color: string;
+  strokeWidthPx: number;
+  strokeColor: string;
+  letterSpacingPx: number;
+  opacity: number;
+  shadow: { x: number; y: number; blur: number; color: string } | null;
+}
+
+// Exact port of WordSpan: entrance font-size animation (linear over
+// `entrance.duration || 180`ms from scaleFrom→scaleTo), active/emphasis pop
+// while spoken (font-size, not transform — so the word reflows and pushes
+// neighbors instead of overlapping), karaoke color only when the word has no
+// explicit color override, and the last-word-only exit fade.
+export function evaluateWordVisuals(
+  word: Word,
+  speakerStyles: Record<string, Partial<WordStyle>>,
+  globalStyle: GlobalStyle,
+  currentTime: number,
+  scaleFactor: number,
+  isGroupLastWord: boolean
+): WordVisuals {
+  const style = resolveWordStyle(word, speakerStyles, globalStyle);
+  const sf = scaleFactor;
+  const baseFontSize = (style.fontSize ?? 48) * sf;
+
+  const entrance = word.animation?.entrance || globalStyle.motion.entrance;
+  const activeAnim = word.animation?.active || globalStyle.motion.active;
+  const emphasis = word.animation?.emphasis || globalStyle.motion.emphasis;
+  const exit = word.animation?.exit || globalStyle.motion.exit;
+
+  const isSpokenNow = currentTime >= word.start && currentTime < word.end;
+  const hasEnded = currentTime >= word.end;
+
+  let fontPx = baseFontSize;
+  let color = style.color ?? "#FFFFFF";
+  let shadow: { x: number; y: number; blur: number; color: string } | null = null;
+  let opacity = style.opacity ?? 1;
+
+  if (entrance && entrance.type === "scale") {
+    const elapsed = (currentTime - word.start) * 1000;
+    const duration = entrance.duration || 180;
+    const progress = Math.min(1, Math.max(0, elapsed / duration));
+    const scale =
+      (entrance.scaleFrom ?? 80) +
+      ((entrance.scaleTo ?? 100) - (entrance.scaleFrom ?? 80)) * progress;
+    fontPx = (baseFontSize * scale) / 100;
+  }
+
+  if (emphasis && emphasis.type === "scale" && isSpokenNow) {
+    fontPx = (baseFontSize * (emphasis.scaleTo ?? 140)) / 100;
+    if (emphasis.color && !word.style?.color) color = emphasis.color;
+    if (emphasis.glowRadius) {
+      shadow = {
+        x: 0,
+        y: 0,
+        blur: emphasis.glowRadius * sf,
+        color: emphasis.color || "#FFD700",
+      };
+    }
+  } else if (activeAnim && activeAnim.type === "scale" && isSpokenNow) {
+    fontPx = (baseFontSize * (activeAnim.scaleTo ?? 125)) / 100;
+    if (activeAnim.color && !word.style?.color) color = activeAnim.color;
+    if (activeAnim.glowRadius) {
+      shadow = {
+        x: 0,
+        y: 0,
+        blur: activeAnim.glowRadius * sf,
+        color: activeAnim.color || "#FFD700",
+      };
+    }
+  }
+
+  if (exit && hasEnded && isGroupLastWord) {
+    const elapsedMs = (currentTime - word.end) * 1000;
+    const exitDuration = exit.duration || EXIT_FADE_DEFAULT_DURATION_MS;
+    const progress = Math.min(1, Math.max(0, elapsedMs / exitDuration));
+    opacity = (exit.from ?? 1) + ((exit.to ?? 0) - (exit.from ?? 1)) * progress;
+  }
+
+  if (!shadow && style.shadowColor) {
+    shadow = {
+      x: (style.shadowOffsetX || 0) * sf,
+      y: (style.shadowOffsetY || 0) * sf,
+      blur: (style.shadowBlur || 0) * sf,
+      color: style.shadowColor,
+    };
+  }
+
+  return {
+    text: applyTextTransform(word.text, style.textTransform),
+    fontFamily: resolveCanvasFontFamily(style.fontFamily ?? "Impact, sans-serif"),
+    fontWeight: style.fontWeight ?? 400,
+    fontPx,
+    color,
+    strokeWidthPx: (style.strokeWidth ?? 0) * sf,
+    strokeColor: style.strokeColor ?? "#000000",
+    letterSpacingPx: (style.letterSpacing ?? 0) * sf,
+    opacity,
+    shadow,
+  };
+}
+
+export interface LayoutWord {
+  visuals: WordVisuals;
+  width: number;
+  ascent: number;
+  descent: number;
+}
+
+export interface LayoutLine {
+  words: LayoutWord[];
+  width: number;
+  ascent: number;
+  descent: number;
+  /** Canvas text-baseline y for every word in the line (items-baseline). */
+  baseline: number;
+}
+
+export interface CaptionLayout {
+  lines: LayoutLine[];
+  width: number;
+  height: number;
+}
+
+function measureWordInContext(
+  ctx: CanvasRenderingContext2D,
+  v: WordVisuals
+): { width: number; ascent: number; descent: number } {
+  ctx.font = `${v.fontWeight} ${v.fontPx}px ${v.fontFamily}`;
+  ctx.textBaseline = "alphabetic";
+  const m = ctx.measureText(v.text);
+  const ascent = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent ?? v.fontPx * 0.8;
+  const descent = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent ?? v.fontPx * 0.2;
+  let width = m.width;
+  if (v.letterSpacingPx !== 0 && v.text.length > 0) {
+    width = 0;
+    for (const ch of v.text) width += ctx.measureText(ch).width + v.letterSpacingPx;
+    width -= v.letterSpacingPx;
+  }
+  return { width, ascent, descent };
+}
+
+// Mirrors `flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1`:
+// greedy wrapping into the wrapper's max width, baseline-aligned rows, each
+// line centered. Wraps per-frame so line breaks follow the same live reflow
+// the DOM does as entrance/active pops resize words.
+export function layoutCaptionWords(
+  ctx: CanvasRenderingContext2D,
+  visuals: WordVisuals[],
+  wrapperMaxWidth: number
+): CaptionLayout {
+  const lines: LayoutLine[] = [];
+  let current: LayoutWord[] = [];
+  let currentWidth = 0;
+
+  const pushLine = (words: LayoutWord[]) => {
+    if (words.length === 0) return;
+    let ascent = 0;
+    let descent = 0;
+    let width = 0;
+    for (const w of words) {
+      ascent = Math.max(ascent, w.ascent);
+      descent = Math.max(descent, w.descent);
+      width += w.width;
+    }
+    width += GAP_X * (words.length - 1);
+    lines.push({ words, width, ascent, descent, baseline: 0 });
+  };
+
+  for (const v of visuals) {
+    const m = measureWordInContext(ctx, v);
+    const lw: LayoutWord = {
+      visuals: v,
+      width: m.width,
+      ascent: m.ascent,
+      descent: m.descent,
+    };
+    const needed = current.length ? currentWidth + GAP_X + m.width : m.width;
+    if (current.length && needed > wrapperMaxWidth) {
+      pushLine(current);
+      current = [];
+      currentWidth = 0;
+    }
+    const lwWidth = m.width;
+    currentWidth += current.length === 0 ? lwWidth : GAP_X + lwWidth;
+    current.push(lw);
+  }
+  pushLine(current);
+
+  let cursor = 0;
+  let width = 0;
+  for (const line of lines) {
+    line.baseline = cursor + line.ascent;
+    cursor += line.ascent + line.descent + GAP_Y;
+    width = Math.max(width, line.width);
+  }
+  const height = cursor > GAP_Y ? cursor - GAP_Y : 0;
+
+  return { lines, width, height };
+}
+
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rad);
+  ctx.arcTo(x + w, y + h, x, y + h, rad);
+  ctx.arcTo(x, y + h, x, y, rad);
+  ctx.arcTo(x, y, x + w, y, rad);
+  ctx.closePath();
+}
+
+function paintWord(ctx: CanvasRenderingContext2D, lw: LayoutWord, x: number, baseline: number) {
+  const v = lw.visuals;
+  ctx.save();
+  ctx.globalAlpha = v.opacity;
+  ctx.font = `${v.fontWeight} ${v.fontPx}px ${v.fontFamily}`;
+  ctx.fillStyle = v.color;
+  if (v.strokeWidthPx > 0) {
+    ctx.strokeStyle = v.strokeColor;
+    ctx.lineWidth = v.strokeWidthPx;
+    ctx.lineJoin = "round";
+    ctx.miterLimit = 1.5;
+  }
+  if (v.shadow) {
+    ctx.shadowOffsetX = v.shadow.x;
+    ctx.shadowOffsetY = v.shadow.y;
+    ctx.shadowBlur = v.shadow.blur;
+    ctx.shadowColor = v.shadow.color;
+  }
+  if (v.letterSpacingPx !== 0) {
+    let cx = x;
+    for (const ch of v.text) {
+      if (v.strokeWidthPx > 0) ctx.strokeText(ch, cx, baseline);
+      ctx.fillText(ch, cx, baseline);
+      cx += ctx.measureText(ch).width + v.letterSpacingPx;
+    }
+  } else {
+    if (v.strokeWidthPx > 0) ctx.strokeText(v.text, x, baseline);
+    ctx.fillText(v.text, x, baseline);
+  }
+  ctx.restore();
+}
+
+export function paintCaptionGroup(
+  ctx: CanvasRenderingContext2D,
+  outW: number,
+  outH: number,
+  layout: CaptionLayout,
+  groupLayout: GroupLayoutInput,
+  globalStyle: GlobalStyle,
+  scaleFactor: number
+) {
+  const yPct = Math.min(MAX_CAPTION_Y, Math.max(MIN_CAPTION_Y, globalStyle.transform.y ?? 80));
+  const hasBg =
+    !!globalStyle.style.backgroundColor && globalStyle.style.backgroundColor !== "transparent";
+  const padVertical = (globalStyle.style.backgroundPadding ?? 6) * scaleFactor;
+  const padHorizontal = padVertical * 2;
+  const radius = (globalStyle.style.backgroundBorderRadius ?? 8) * scaleFactor;
+
+  // Wrapper: `left: 50%; top: yPct%; translate(-50%, -50%) translate(x, y)` —
+  // the layout.x/y drag offsets are design-surface px, so scale them by
+  // scaleFactor onto the export canvas.
+  const centerX = outW / 2 + (groupLayout.x ?? 0) * scaleFactor;
+  const centerY = outH * (yPct / 100) + (groupLayout.y ?? 0) * scaleFactor;
+  const scale = groupLayout.scale ?? 1;
+
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.scale(scale, scale);
+
+  if (hasBg) {
+    const boxW = layout.width + padHorizontal * 2;
+    const boxH = layout.height + padVertical * 2;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 4;
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = globalStyle.style.backgroundColor!;
+    roundRectPath(
+      ctx,
+      -layout.width / 2 - padHorizontal,
+      -layout.height / 2 - padVertical,
+      boxW,
+      boxH,
+      radius
+    );
+    ctx.fill();
+    ctx.restore();
+  }
+
+  for (const line of layout.lines) {
+    let x = -line.width / 2;
+    for (const lw of line.words) {
+      paintWord(ctx, lw, x, line.baseline);
+      x += lw.width + GAP_X;
+    }
+  }
+
+  ctx.restore();
+}
+
+export interface SceneDrawOptions {
+  transcription: TranscriptionResult;
+  globalStyle: GlobalStyle;
+  speakerStyles: Record<string, Partial<WordStyle>>;
+  groupLayouts: Record<string, GroupLayoutInput>;
+  video: HTMLVideoElement | null;
+  currentTime: number;
+  outW: number;
+  outH: number;
+  previewPlatform: PreviewPlatform;
+  /** Bottom legibility gradient — matches the preview overlay. Defaults to on. */
+  drawGradient?: boolean;
+  /** Defaults to outW / EXPORT_DESIGN_WIDTH. */
+  scaleFactor?: number;
+}
+
+/**
+ * Paints one full output frame: black canvas, the video (camera zoom applied
+ * around center, object-cover when a platform crop is active, contain
+ * otherwise — matching VideoPreview), the bottom gradient, then the active
+ * caption group. No editor chrome (selection frames / toolbar / platform
+ * preview overlay) is drawn.
+ */
+export function paintExportFrame(canvas: HTMLCanvasElement, opts: SceneDrawOptions) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const { outW, outH } = opts;
+  const sf = opts.scaleFactor ?? outW / EXPORT_DESIGN_WIDTH;
+
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, outW, outH);
+
+  const video = opts.video;
+  if (video && video.videoWidth > 0 && video.videoHeight > 0) {
+    const zoom = sampleZoom(
+      opts.currentTime,
+      opts.globalStyle.videoEffects.cameraEvents,
+      opts.globalStyle.videoEffects
+    );
+    const crop = opts.previewPlatform !== "none";
+    const srcW = video.videoWidth;
+    const srcH = video.videoHeight;
+    let scale: number;
+    if (crop) {
+      scale = Math.max(outW / srcW, outH / srcH) * zoom;
+    } else {
+      scale = Math.min(outW / srcW, outH / srcH) * zoom;
+    }
+    const dw = srcW * scale;
+    const dh = srcH * scale;
+    const sx = (outW - dw) / 2;
+    const sy = (outH - dh) / 2;
+    ctx.drawImage(video, sx, sy, dw, dh);
+  }
+
+  if (opts.drawGradient !== false) {
+    const gh = outH * 0.35;
+    const g = ctx.createLinearGradient(0, outH - gh, 0, outH);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(0,0,0,0.65)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, outH - gh, outW, gh);
+  }
+
+  const activeGroup = findActiveCaptionGroup(
+    opts.transcription,
+    opts.globalStyle,
+    opts.currentTime
+  );
+  if (!activeGroup) return;
+
+  const words: Word[] = [];
+  for (const wid of activeGroup.wordIds) {
+    const w = opts.transcription.words.find((x) => x.id === wid);
+    if (w) words.push(w);
+  }
+  if (words.length === 0) return;
+
+  const visuals = words.map((w, i) =>
+    evaluateWordVisuals(
+      w,
+      opts.speakerStyles,
+      opts.globalStyle,
+      opts.currentTime,
+      sf,
+      i === words.length - 1
+    )
+  );
+
+  const maxW = opts.globalStyle.style.maxWidth ?? 800;
+  const wrapperMaxWidth = Math.min(maxW * sf, outW * 0.92);
+  const layout = layoutCaptionWords(ctx, visuals, wrapperMaxWidth);
+  const groupLayout = opts.groupLayouts[activeGroup.id] || { x: 0, y: 0, scale: 1 };
+
+  paintCaptionGroup(ctx, outW, outH, layout, groupLayout, opts.globalStyle, sf);
+}
+
+export { GAP_X, GAP_Y };

@@ -2,10 +2,11 @@ import { Word, CaptionGroup, Segment, TranscriptionResult } from "./types";
 import { v4 as uuid } from "uuid";
 import { groupWordsIntoCaptions } from "./captions";
 
-// Real Whisper transcript of public/samples/demo-talking-head.mp4, run through
-// the same even-split-per-segment algorithm production uses in
-// parseSegmentsToWords (Groq's segments don't carry nested word timestamps,
-// so real uploads hit that fallback path too — this demo matches it exactly).
+// Real Whisper transcript of public/samples/demo-talking-head.mp4. The word
+// timings below mirror the even-split-per-segment fallback shape (used only
+// when a provider returns no word-level timestamps) — production uploads now
+// get real per-word timestamps from Groq's top-level `words` array; this
+// static demo keeps its own evenly-padded times for simplicity.
 export const DEMO_VIDEO_URL = "/samples/demo-talking-head.mp4";
 
 const RAW_DEMO_WORDS = [
