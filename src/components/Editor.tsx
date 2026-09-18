@@ -61,6 +61,12 @@ export default function Editor() {
   const [activePanel, setActivePanel] = useState<Panel>("inspector");
   const [showTranscript, setShowTranscript] = useState(true);
   const [showStylePanel, setShowStylePanel] = useState(true);
+  // Root URL always shows the hero first, even when a project was restored
+  // from a previous session — a returning visitor explicitly resumes via the
+  // card below instead of being auto-dropped into the editor. Actions that
+  // create a *new* transcription (upload, demo) set this true themselves, so
+  // that flow goes straight through once transcription resolves.
+  const [entered, setEntered] = useState(false);
 
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const setVideoFile = useEditorStore((s) => s.setVideoFile);
@@ -211,6 +217,7 @@ export default function Editor() {
 
   const handleFileSelect = useCallback(
     async (file: File) => {
+      setEntered(true);
       setVideoFile(file);
 
       setIsTranscribing(true);
@@ -349,6 +356,7 @@ export default function Editor() {
             onClick={() => {
               clearProjectFromStorage();
               newProject();
+              setEntered(false);
             }}
             title="Start over — clears the saved project"
             className="h-7 px-3 text-white bg-transparent border border-white/15 text-xs rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
@@ -373,7 +381,7 @@ export default function Editor() {
         >
           <div className="flex flex-col min-w-0 h-full">
             <div className="flex-1 p-4 overflow-hidden">
-            {!transcription ? (
+            {!(entered && transcription) ? (
               <div className="relative h-full flex flex-col items-center justify-center gap-6 px-4">
                 <div className="text-center max-w-2xl">
                   <h2 className="font-display text-4xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
@@ -411,8 +419,43 @@ export default function Editor() {
                     </div>
                   </div>
                 </div>
+
+                {transcription && !entered && (
+                  <div className="w-full max-w-2xl flex items-center justify-between gap-3 rounded-xl border border-[#00FF66]/30 bg-[#00FF66]/5 px-4 py-3">
+                    <div className="text-sm text-white">
+                      <span className="font-semibold">Continue your last project</span>
+                      <span className="text-zinc-400"> — {transcription.words.length} words</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => {
+                          clearProjectFromStorage();
+                          newProject();
+                          setEntered(false);
+                        }}
+                        className="text-xs text-zinc-400 hover:text-white transition-colors"
+                      >
+                        Start fresh
+                      </button>
+                      <button
+                        onClick={() => setEntered(true)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-black transition-transform hover:scale-[1.03]"
+                        style={{ backgroundImage: "linear-gradient(120deg,#00ff66,#22c55e)" }}
+                      >
+                        Resume →
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="w-full max-w-2xl">
-                  <UploadZone onFileSelect={handleFileSelect} onDemo={loadDemo} />
+                  <UploadZone
+                    onFileSelect={handleFileSelect}
+                    onDemo={() => {
+                      setEntered(true);
+                      loadDemo();
+                    }}
+                  />
                 </div>
 
                 {isTranscribing && (
