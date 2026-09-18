@@ -1,4 +1,11 @@
-import * as ort from "onnxruntime-web";
+// The default "onnxruntime-web" entry point ships a WASM-only bundle — the
+// WebGPU backend lives behind this subpath so bundle size stays small for
+// consumers who don't need it. Importing the bare package here silently
+// disabled the webgpu execution provider: every load fell back to WASM
+// (~80-120ms/frame) even on machines with full WebGPU support, because
+// InferenceSession.create({executionProviders: ["webgpu"]}) threw
+// "backend not found" and the catch in loadBackend() swallowed it.
+import * as ort from "onnxruntime-web/webgpu";
 
 export type RvmBackend = "webgpu" | "wasm";
 
