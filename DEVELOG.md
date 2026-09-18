@@ -477,6 +477,65 @@ Fix the "Panel constraints not found" crash the user hit when the transcript pan
 
 ---
 
+## 2026-09-15 — Real talking-head demo + word dictionary + caption render fixes (PR #7)
+
+### Session goal
+Make the demo a real end-to-end exercise instead of a synthetic transcript floating over a black canvas, add a per-project fixer for words Whisper reliably mishears, and fix three caption-rendering bugs the real footage exposed.
+
+### Demo: real talking-head clip (committed `487d48a`, branch `feature/real-demo-video-and-dictionary`)
+- The fake-transcript demo is replaced by a 40s talking-head clip (`public/samples/demo-talking-head.mp4`), transcribed once through the real Whisper pipeline and **baked into `src/core/demo.ts`** — words + segments, timed by the same even-split-per-segment algorithm `parseSegmentsToWords` uses for real uploads (Groq's segments don't carry nested word timestamps). Contiguous timings get a small natural gap trimmed in (`WORD_GAP`) so the timeline's drag-to-retime handles have room to work.
+- `loadDemo` now treats the demo like an upload: `videoUrl = DEMO_VIDEO_URL` drives the real `VideoPreview`, so the demo renders through the same video/caption/zoom path a real upload does — the zero-config judge path exercises the actual pipeline, not a mock.
+
+### Word dictionary (per-project vocabulary corrections)
+- New `DictionaryEntry { id, from, to }` persisted with the project (typed in `src/core/types.ts`, autosaved with `restorePersisted`/`newProject`).
+- **Two-layer application** in `src/core/dictionary.ts`: `buildWhisperPrompt` sends the `to` terms to Whisper as a vocabulary hint (`Vocabulary: …`), and `applyDictionary` runs a guaranteed, case- and punctuation-insensitive find-replace per word on the result — the hint only biases recognition, the replace pass corrects.
+- `/api/transcribe` forwards the `prompt` field on **both** the direct and the ffmpeg-normalized upload paths.
+- UI: a collapsible **Dictionary** section in the Transcript panel (add/remove entries); entries apply to every future transcription of the project.
+
+### Caption-render bugs fixed (found testing the above against real footage)
+1. **Word color override silently clobbered** — `WordSpan` overwrote the word's color with the karaoke emphasis/active animation color every time the word was "spoken now"; pausing on a selected word silently reverted its explicitly-picked color and made the color picker look broken. Fix: the animation color only applies when the word has no explicit `word.style.color`.
+2. **"Ghost previous word"** — the exit-fade branch ran per word on `hasEnded`, so an already-spoken word earlier in the same caption line faded to near-invisible while its still-being-spoken group-mates stayed fully opaque, and the line read as missing a word. Fix: exit-fade only runs for the group's **last** word (`isGroupLastWord`); the whole line still fades together when the group actually ends.
+3. **Active-group boundary race** — the lookup used `currentTime >= start && currentTime <= end`, so at a zero-gap boundary (routine in real transcripts via the even-split fallback) two adjacent groups matched simultaneously and `.find()` kept the stale group for one tick while its fading tail rendered alongside the new group. Fix: half-open `[start, end)` resolves the boundary deterministically to the incoming group, with a special case so the final group still renders at the transcript's exact closing instant.
+
+### Follow-up, not in scope (issue #6)
+- The group exit-fade is structurally unreachable for a group's **real last word** while playing: the active-group lookup flips to the next group at the exact instant `currentTime` reaches that word's end, so `hasEnded` and an active exit can never both hold. Filed as #6.
+
+### Verified in `487d48a`
+- `tsc --noEmit` passes. Browser: demo video loads and plays, transcript matches real speech, dictionary correction visible ("Postiz"); ghost-word fix confirmed via DOM inspection (all words at opacity 1 in an active group, exit-fade still applying to a genuine last word).
+
+---
+
+## 2026-09-15 — CodeRabbit triage on PR #7 (committed `c0c2b4c`, merged `31d7169`)
+
+### Session goal
+Verify each of CodeRabbit's three PR #7 comments against the live code, then fix the real ones. All three were real.
+
+1. **Whisper prompt must be capped at 224 tokens (Minor, real).** Groq's Whisper endpoint rejects prompts over 224 tokens, and nothing bounded `buildWhisperPrompt` — a large persisted dictionary would silently break transcription. Fix (`src/core/dictionary.ts`): the budget is estimated at ~4 chars/token (a coarse BPE proxy — no tokenizer is available client-side), and terms are kept in order from the head, dropped at whole-term boundaries once the estimate exceeds 224. A big dictionary degrades into a shorter hint instead of failing the request.
+2. **Multi-word dictionary mappings were structurally dead (Minor, real).** A `Word.text` is always one whitespace-free token (`parseSegmentsToWords` splits on whitespace), so a "New York"-style `from` could never match word-level, and a multi-word `to` forced into one timestamped Word would collapse several timestamps into one word. Fix: entries are now **single tokens** — `addDictionaryEntry` rejects multi-token `from`/`to`, the Dictionary UI surfaces an inline validation message ("Each entry fixes one word…") instead of silently ignoring the click, and `applyDictionary`/`buildWhisperPrompt` defensively skip any previously-persisted multi-token entry.
+3. **Demo load left the persisted upload in IndexedDB (Major, real).** `loadDemo` swapped `videoFile`/`videoUrl` but never cleared the IndexedDB blob; on reload, `Editor`'s restore path reconstructed the stale upload whenever `videoFile` was null and `setRestoredVideo` replaced `DEMO_VIDEO_URL` while the demo transcript stayed loaded — a demo showing the wrong (stale) video. Fix: `loadDemo` bumps `videoSaveGeneration` first (so an in-flight save result for the old blob can't report a stale failure against demo state), then queues `clearVideoFromStorage` behind any pending save (`enqueueVideoOp` serializes, so the clear can't race a pending save), surfacing the same storage warning as New Project when the clear fails.
+
+### Verified
+- `tsc --noEmit` clean; eslint clean on the three touched files. The three fixes were committed as `c0c2b4c` (`fix: address CodeRabbit review on PR #7`) and PR #7 was merged into `main` at `31d7169`.
+
+---
+
+## 2026-09-15 — Background removal foundation (working tree, in progress)
+
+### Session goal
+Start the background-removal feature (`feature/background-removal`): remove/replace the video's background behind the captions so a talking-head clip can sit on a color, image, or blurred version of itself. In progress — core + data model only, no UI consumer yet, nothing committed.
+
+### What exists so far (uncommitted)
+- **Data model** (`src/core/types.ts`): `BackgroundMode = "none" | "blur" | "color" | "image"` and `BackgroundSettings { mode, color, imageUrl, blurAmount }`, added to `GlobalStyle.background`; `defaultBackgroundSettings` (mode `none`, default accent `#00FF66`, blur 12) in `src/core/styles.ts`.
+- **Store actions** (`src/store/editor-store.ts`): `setBackgroundMode/Color/Image/BlurAmount`, and `restorePersisted` deep-merges `background` onto defaults so old projects restore with the current default.
+- **Segmenter** (`src/core/background-removal.ts`, new, untracked): lazy-loaded MediaPipe `ImageSegmenter` singleton (WASM + `selfie_segmenter` tflite from jsDelivr/GCS — downloaded once a background mode is actually picked, not on editor load), `runningMode: "VIDEO"` for per-frame `segmentForVideo`. The single-class confidence mask is inverted here once (MediaPipe's `confidenceMasks[0]` = background, repo convention is 1 = subject) so every call site works with the subject-typed alpha.
+- **Mask post-processing** (`src/core/temporal-smoothing.ts`, new, untracked): model-agnostic, works on the plain per-pixel confidence array regardless of backend so RVM/MODNet can swap in later — `smoothMaskTemporal` (EMA against the previous frame's mask to kill per-frame flicker; call sites reset to `null` when the working resolution changes) and `featherMask` (separable two-pass box blur on the alpha channel itself to soften the "paper cutout" edge, no dependency).
+- **Dependency** (`package.json`): `@mediapipe/tasks-vision ^1.0.1`.
+
+### Not built yet
+- No preview layer consumes the mask; no Inspector/panel UI exposes the modes; no export path (burn composite via ffmpeg or ffmpeg.wasm chain).
+
+---
+
 ## Decisions register
 
 | # | Decision | Rationale | Status |
@@ -529,3 +588,13 @@ Fix the "Panel constraints not found" crash the user hit when the transcript pan
 | 46 | Imperative sidebar collapse/expand is deferred one frame (`requestAnimationFrame`, cancelled in cleanup) instead of running in the mount commit | v4's `isCollapsed()`/`collapse()`/`expand()` throw "Panel constraints not found" if called before the Group registers the panel's constraints with it | Committed `43f296f` (PR #5) |
 | 47 | Captions scale with the rendered frame: preview/demo pass `W_portrait / W_full` (`ResizeObserver`) into `CaptionOverlay.scaleFactor` applied to real render props (font-size, letter-spacing, stroke, shadow, max-width, group-background padding/radius, animated glow radius) — not a wrapper transform; export burns `FontSize` proportional to effective output width (clamped ~10–48) after the platform 9:16 center-crop, which itself crops whichever dimension (width or height) the source over-provides relative to 9:16 | Fixed 1280-design px overflows the narrower 9:16 canvas (typographic-point scaling is proportional by definition); a wrapper scale would leave selection frames and hit-testing at unscaled geometry; libass `FontSize` lives in output pixels so it must track output width; always-crop-width-only left sources narrower than 9:16 completely uncropped (CodeRabbit PR #5) | Committed `43f296f` (PR #5) |
 | 48 | `previewPlatform` is store view state outside undo (type in `src/core/types.ts`), shared by the preview toggle, demo toggle and export | One selection drives chrome, crop and caption scale — component-local copies would drift | Committed `43f296f` (PR #5) |
+| 49 | Demo mode uses a real 40s talking-head clip transcribed once and baked into `src/core/demo.ts`, rendered through the same video path as a real upload (`DEMO_VIDEO_URL` → `VideoPreview`) | A real clip catches pipeline bugs (timing, format parsing, group boundaries) a synthetic transcript on a black canvas can't; the zero-config judge path exercises the actual pipeline | Committed `487d48a` (PR #7) |
+| 50 | Word dictionary is applied two ways: a Whisper `prompt` hint (biases recognition) **and** a guaranteed token-level find-replace pass on the result; `/api/transcribe` forwards the prompt on both upload paths | Whisper's prompt is only a soft bias, not a substitution — the replace pass guarantees the correction; one entry serves both layers | Committed `487d48a` (PR #7) |
+| 51 | Active-caption-group lookup is half-open `[start, end)` (with an explicit final-group exception at the exact closing instant); per-word color override beats the karaoke animation color; exit-fade runs only for a group's last word | At a zero-gap boundary two inclusive groups matched together and `.find()` kept the stale fading group (ghost word); a paused selected word otherwise silently reverts to the animation color; fading every word mid-line reads as a missing word | Committed `487d48a` (PR #7) |
+| 52 | Whisper prompt capped at 224 tokens at whole-term boundaries via a ~4 chars/token estimate (no client-side tokenizer) | Groq rejects prompts over 224 tokens; a big dictionary should degrade to a shorter hint, not fail transcription | Committed `c0c2b4c` (PR #7) |
+| 53 | Dictionary entries are single tokens — rejected at add in the UI + store, and defensively skipped in `applyDictionary`/`buildWhisperPrompt` | A `Word` is one whitespace-free token with one timestamp; phrase replacements would require phrase-aware timing and grouping the word model doesn't have | Committed `c0c2b4c` (PR #7) |
+| 54 | `loadDemo` clears the persisted IndexedDB upload — `videoSaveGeneration` bumped first, clear queued behind any pending save | Otherwise the demo resurrects a stale upload blob over `DEMO_VIDEO_URL` on the next reload (Editor restores that blob whenever `videoFile` is null) | Committed `c0c2b4c` (PR #7) |
+| 55 | Background removal uses a lazy MediaPipe `ImageSegmenter` singleton (WASM/model fetched only when a mode is first picked) feeding model-agnostic mask post-processing (`temporal-smoothing.ts`: EMA across frames + separable alpha-box-blur feather) | First-paint pays nothing for a feature nobody enabled; the smoothing/feathering layer only touches the plain confidence array, so the segmenter backend (MediaPipe today, RVM/MODNet later) can swap without touching it | Working tree (`feature/background-removal`) |
+| 56 | RVM proof-of-concept (`?seg=rvm`): official mobilenetv3 RVM ONNX client-side via `onnxruntime-web@1.30.0`, zero-init recurrent states reset on mode change / seek jump (`>0.6s` gap), probe-run + auto-fallback (WebGPU→WASM), dev-only `?ep=` override | Measured: WASM fp32 960×544 ≈ 65–103ms/frame (~12fps composite ceiling), recurrence drift −0.011 over 24 frames (no decay), composite pixel-verified at 1920×1080. WebGPU EP genuinely can't run RVM (`AveragePool(ceil_mode=1)` kernel unimplemented) — probe catches it and falls back | Uncommitted → PR #9 |
+| 57 | CodeRabbit #9 fixes: (a) paused scrubbing/seek now recomposites the current frame — `lastDrawnTimeRef` gates redraws by playhead movement instead of skipping everything while paused; (b) persisted background image `blob:` URL replaced with IndexedDB bytes (same store as the video) + restore-time safety net (dead blob → mode "none" until the async restore re-creates the object URL), generation-guarded save-failure warning, cleared on New Project | (a) Scrubbing while paused left the composite canvas a stale frame until play was pressed (captions redrew, background didn't); (b) a `blob:` URL is per-document — after reload the image background rendered as plain black (a failed `<img>` is `complete` with `naturalWidth 0`, so `drawImage` no-ops) | Uncommitted → PR #9 |
+| 58 | MediaPipe VIDEO-mode readiness guard in `segmentFrame`: skip when the video has no decoded frame (`readyState < HAVE_CURRENT_DATA`) and wrap `segmentForVideo` in try/catch — a not-ready frame (mode enabled right at t=0, just after play starts, or mid-scrub before decode) degrades to "skip this tick; the rAF loop retries" with a one-time warning instead of an uncaught MediaPipe throw | Changing the background triggered a dev-overlay crash at `segmentForVideo`: MediaPipe throws synchronously when the current playhead's frame isn't decoded yet; the uncaught exception propagated to the window handler (the paused-scrub redraw fix made it reachable while paused) and killed the tick loop. Driven-tick verification: 0 window errors, 1920×1080 composite with correct cutout | Uncommitted → PR #9 |

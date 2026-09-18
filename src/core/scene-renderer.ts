@@ -413,12 +413,24 @@ export function paintCaptionGroup(
   ctx.restore();
 }
 
+// The video frame source for a single paint call: either the raw <video>
+// element, or (when background removal is active) an offscreen canvas
+// already holding that frame composited over the chosen background —
+// see BackgroundCompositor.renderFrame in background-composite.ts.
+export type VideoFrameSource = HTMLVideoElement | HTMLCanvasElement;
+
+function sourceSize(source: VideoFrameSource): { w: number; h: number } {
+  return source instanceof HTMLVideoElement
+    ? { w: source.videoWidth, h: source.videoHeight }
+    : { w: source.width, h: source.height };
+}
+
 export interface SceneDrawOptions {
   transcription: TranscriptionResult;
   globalStyle: GlobalStyle;
   speakerStyles: Record<string, Partial<WordStyle>>;
   groupLayouts: Record<string, GroupLayoutInput>;
-  video: HTMLVideoElement | null;
+  video: VideoFrameSource | null;
   currentTime: number;
   outW: number;
   outH: number;
@@ -446,15 +458,16 @@ export function paintExportFrame(canvas: HTMLCanvasElement, opts: SceneDrawOptio
   ctx.fillRect(0, 0, outW, outH);
 
   const video = opts.video;
-  if (video && video.videoWidth > 0 && video.videoHeight > 0) {
+  const { w: videoW, h: videoH } = video ? sourceSize(video) : { w: 0, h: 0 };
+  if (video && videoW > 0 && videoH > 0) {
     const zoom = sampleZoom(
       opts.currentTime,
       opts.globalStyle.videoEffects.cameraEvents,
       opts.globalStyle.videoEffects
     );
     const crop = opts.previewPlatform !== "none";
-    const srcW = video.videoWidth;
-    const srcH = video.videoHeight;
+    const srcW = videoW;
+    const srcH = videoH;
     let scale: number;
     if (crop) {
       scale = Math.max(outW / srcW, outH / srcH) * zoom;

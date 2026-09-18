@@ -15,6 +15,7 @@ import {
   loadProjectFromStorage,
   clearProjectFromStorage,
   loadVideoFromStorage,
+  loadBackgroundImageFromStorage,
 } from "@/core/persistence";
 import UploadZone from "@/components/UploadZone";
 import VideoPreview from "@/components/VideoPreview";
@@ -22,6 +23,7 @@ import Timeline from "@/components/Timeline";
 import TranscriptPanel from "@/components/TranscriptPanel";
 import Inspector from "@/components/Inspector";
 import Presets from "@/components/Presets";
+import BackgroundPanel from "@/components/BackgroundPanel";
 import ExportPanel from "@/components/ExportPanel";
 import TransportControls from "@/components/TransportControls";
 import Link from "next/link";
@@ -31,7 +33,7 @@ import PlatformPreviewOverlay, { PlatformPreviewToggle } from "@/components/Plat
 import { useDemoPlayback } from "@/hooks/useDemoPlayback";
 import { TranscriptionResult } from "@/core/types";
 
-type Panel = "inspector" | "presets" | null;
+type Panel = "inspector" | "presets" | "background" | null;
 
 function getVideoDuration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -115,6 +117,32 @@ export default function Editor() {
         });
         const url = URL.createObjectURL(file);
         useEditorStore.getState().setRestoredVideo(file, url);
+      } else if (saved?.demoMode) {
+        useEditorStore.getState().loadDemo();
+      }
+    });
+    // The persisted image URL was a blob: URL (safety-netted to empty by
+    // restorePersisted); the actual bytes live in IndexedDB. Recreate a fresh
+    // object URL so the image background survives the reload — whenever a blob
+    // was persisted, regardless of the saved mode (an image picked earlier but
+    // a different mode active at save time must not lose the upload).
+    const bg = saved?.globalStyle?.background;
+    const hadPersistedImage =
+      typeof bg?.imageUrl === "string" && bg.imageUrl.startsWith("blob:");
+    loadBackgroundImageFromStorage().then((blob) => {
+      if (cancelled) return;
+      if (useEditorStore.getState().project.id !== loadProjectId) return;
+      if (!hadPersistedImage || !blob) return;
+      const current = useEditorStore.getState().project.globalStyle.background;
+      // Only fill the gap the dead blob left behind: an in-session re-pick
+      // after load wins over the persisted image.
+      if (current.imageUrl) return;
+      const url = URL.createObjectURL(blob);
+      useEditorStore.getState().setBackgroundImage(url);
+      // Reflect the saved active mode only when it was "image"; otherwise the
+      // restored mode (blur/color/none) stays and the image is just available.
+      if (bg?.mode === "image" && current.mode === "none") {
+        useEditorStore.getState().setBackgroundMode("image");
       }
     });
     return () => {
@@ -518,6 +546,16 @@ export default function Editor() {
                   Presets
                 </button>
                 <button
+                  onClick={() => setActivePanel("background")}
+                  className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                    activePanel === "background"
+                      ? "text-[#00FF66] border-b-2 border-[#00FF66]"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  Background
+                </button>
+                <button
                   onClick={() => setShowStylePanel(false)}
                   title="Hide panel"
                   className="px-2 text-zinc-500 hover:text-white shrink-0"
@@ -527,6 +565,7 @@ export default function Editor() {
               </div>
               {activePanel === "inspector" && <Inspector />}
               {activePanel === "presets" && <Presets />}
+              {activePanel === "background" && <BackgroundPanel />}
             </div>
           </ResizableSidebar>
         )}

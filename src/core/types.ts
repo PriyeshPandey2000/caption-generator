@@ -81,12 +81,22 @@ export interface TranscriptionResult {
   captionGroups: CaptionGroup[];
 }
 
+export type BackgroundMode = "none" | "blur" | "color" | "image";
+
+export interface BackgroundSettings {
+  mode: BackgroundMode;
+  color: string;
+  imageUrl: string | null;
+  blurAmount: number;
+}
+
 export interface GlobalStyle {
   style: WordStyle;
   motion: WordMotion;
   transform: WordTransform;
   maxWordsPerGroup: number;
   videoEffects: VideoEffects;
+  background: BackgroundSettings;
   sfx: SfxSettings;
 }
 
@@ -182,4 +192,5 @@ export interface Project {
   dictionary: DictionaryEntry[];
   isTranscribing: boolean;
   error: string | null;
+  demoMode: boolean;
 }

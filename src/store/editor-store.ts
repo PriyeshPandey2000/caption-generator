@@ -13,6 +13,7 @@ import {
   Composition,
   PreviewPlatform,
   DictionaryEntry,
+  BackgroundMode,
 } from "@/core/types";
 import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
@@ -24,6 +25,8 @@ import {
   saveVideoToStorage,
   clearProjectFromStorage,
   clearVideoFromStorage,
+  saveBackgroundImageToStorage,
+  clearBackgroundImageFromStorage,
 } from "@/core/persistence";
 import {
   buildCameraTimeline,
@@ -97,6 +100,11 @@ interface EditorState {
   regenerateSfx: () => void;
   setSfxOverride: (wordId: string, val: "inherit" | "none" | SfxName) => void;
   addManualSfxEvent: (wordId: string, sound: SfxName) => void;
+  setBackgroundMode: (mode: BackgroundMode) => void;
+  setBackgroundColor: (color: string) => void;
+  setBackgroundImage: (imageUrl: string | null) => void;
+  setBackgroundImageFile: (file: File) => void;
+  setBackgroundBlurAmount: (blurAmount: number) => void;
   restorePersisted: (data: {
     transcription: TranscriptionResult | null;
     globalStyle: GlobalStyle;
@@ -105,6 +113,7 @@ interface EditorState {
     speakerMotions: Record<string, Partial<WordMotion>>;
     dictionary?: DictionaryEntry[];
     groupLayouts: Record<string, GroupLayout>;
+    demoMode?: boolean;
   }) => void;
   newProject: () => void;
   undo: () => void;
@@ -125,16 +134,17 @@ const initialState: Project = {
   dictionary: [],
   isTranscribing: false,
   error: null,
+  demoMode: false,
 };
 
-// Serialize IndexedDB video writes (save + clear). Both operations touch the
-// same `current` key, so an in-flight save from a previous upload must finish
-// before a New Project clear — otherwise the stale blob can commit *after* the
-// clear and resurrect on the next reload.
-let videoOpQueue: Promise<unknown> = Promise.resolve();
-function enqueueVideoOp<T>(op: () => Promise<T>): Promise<T> {
-  const run = videoOpQueue.then(op, op);
-  videoOpQueue = run.catch(() => {});
+// Serialize IndexedDB writes (video + background image). Both operations touch
+// shared keys in the same store, so an in-flight save from an earlier selection
+// must finish before a New Project clear — otherwise the stale write can commit
+// *after* the clear and resurrect on the next reload.
+let storageOpQueue: Promise<unknown> = Promise.resolve();
+function enqueueStorageOp<T>(op: () => Promise<T>): Promise<T> {
+  const run = storageOpQueue.then(op, op);
+  storageOpQueue = run.catch(() => {});
   return run;
 }
 
@@ -177,6 +187,10 @@ let suppressHistory = false;
 // so a stale `persisted === false` for an old blob can't set an error on
 // newer state.
 let videoSaveGeneration = 0;
+// Monotonic token that increments each time the background image changes or a
+// new project starts. Scopes the async IndexedDB save-failure report so a stale
+// `persisted === false` for an old image can't set an error on newer state.
+let backgroundImageSaveGeneration = 0;
 
 function cloneDoc(s: EditorState): DocSnapshot {
   // The document subset is plain JSON-safe data (no functions/dates), so a
@@ -242,8 +256,12 @@ export const useEditorStore = create<EditorState>((set) => ({
     const url = URL.createObjectURL(file);
     const prevUrl = useEditorStore.getState().videoUrl;
     if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
-    set({ videoFile: file, videoUrl: url });
-    enqueueVideoOp(() =>
+    set((s) => ({
+      videoFile: file,
+      videoUrl: url,
+      project: { ...s.project, demoMode: false },
+    }));
+    enqueueStorageOp(() =>
       saveVideoToStorage({ blob: file, name: file.name, type: file.type })
     ).then((persisted) => {
       // Only report a failure if this save's generation is still current; a
@@ -382,6 +400,80 @@ export const useEditorStore = create<EditorState>((set) => ({
       },
     })),
 
+  setBackgroundMode: (mode) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          background: { ...s.project.globalStyle.background, mode },
+        },
+      },
+    })),
+
+  setBackgroundColor: (color) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          background: { ...s.project.globalStyle.background, color },
+        },
+      },
+    })),
+
+  setBackgroundImage: (imageUrl) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          background: { ...s.project.globalStyle.background, imageUrl },
+        },
+      },
+    })),
+
+  // Mirrors setVideoFile: keep the bytes in IndexedDB (object URLs don't
+  // survive reloads) while the compositor uses a live object URL in-session.
+  setBackgroundImageFile: (file) => {
+    const gen = ++backgroundImageSaveGeneration;
+    const url = URL.createObjectURL(file);
+    const prevUrl = useEditorStore.getState().project.globalStyle.background.imageUrl;
+    if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          background: { ...s.project.globalStyle.background, imageUrl: url },
+        },
+      },
+    }));
+    enqueueStorageOp(() => saveBackgroundImageToStorage(file)).then((persisted) => {
+      // Only report a failure if this save's generation is still current; a
+      // replacement or New Project after this save started means the result
+      // belongs to a stale image.
+      if (!persisted && backgroundImageSaveGeneration === gen) {
+        useEditorStore
+          .getState()
+          .setError(
+            "Your background image shows but couldn't be saved locally — it may disappear after a refresh. The browser may be blocking storage or out of space."
+          );
+      }
+    });
+  },
+
+  setBackgroundBlurAmount: (blurAmount) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          background: { ...s.project.globalStyle.background, blurAmount },
+        },
+      },
+    })),
+
   updateSpeakerStyle: (speaker, style) =>
     set((s) => ({
       project: {
@@ -475,12 +567,13 @@ export const useEditorStore = create<EditorState>((set) => ({
         ...s.project,
         transcription: createDemoTranscription(),
         error: null,
+        demoMode: true,
       },
       videoFile: null,
       videoUrl: DEMO_VIDEO_URL,
     }));
     if (typeof window !== "undefined") {
-      enqueueVideoOp(clearVideoFromStorage).then((cleared) => {
+      enqueueStorageOp(clearVideoFromStorage).then((cleared) => {
         if (!cleared) {
           useEditorStore
             .getState()
@@ -1041,6 +1134,29 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   restorePersisted: (data) => {
     suppressHistory = true;
+    // Restoring over an in-session background orphans the current blob URL
+    // (the image it points at is replaced wholesale) — revoke it up front,
+    // mirroring newProject, so the browser can release the memory.
+    const orphanedBgUrl = useEditorStore.getState().project.globalStyle.background.imageUrl;
+    if (orphanedBgUrl && orphanedBgUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(orphanedBgUrl);
+    }
+    // A background image picked last session is stored as a blob: URL in the
+    // JSON — but blob URLs are per-document and dead after reload. The live
+    // bytes live in IndexedDB (see setBackgroundImageFile); here we only need
+    // the safety net: drop the dead URL and the "image" mode, letting the
+    // async restore fill the gap when the bytes actually exist.
+    const restoredBackground = {
+      ...defaultGlobalStyle.background,
+      ...data.globalStyle.background,
+    };
+    if (
+      typeof restoredBackground.imageUrl === "string" &&
+      restoredBackground.imageUrl.startsWith("blob:")
+    ) {
+      restoredBackground.imageUrl = null;
+      if (restoredBackground.mode === "image") restoredBackground.mode = "none";
+    }
     set((s) => ({
       project: {
         ...s.project,
@@ -1088,6 +1204,7 @@ export const useEditorStore = create<EditorState>((set) => ({
             ...defaultGlobalStyle.sfx,
             ...data.globalStyle.sfx,
           },
+          background: restoredBackground,
         },
         composition: {
           sfxEvents: data.composition?.sfxEvents ?? [],
@@ -1096,6 +1213,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         speakerStyles: data.speakerStyles,
         speakerMotions: data.speakerMotions,
         dictionary: data.dictionary ?? [],
+        demoMode: data.demoMode ?? false,
         isTranscribing: false,
         error: null,
       },
@@ -1116,10 +1234,14 @@ export const useEditorStore = create<EditorState>((set) => ({
   newProject: () => {
     suppressHistory = true;
     ++videoSaveGeneration;
+    // Bump the background save generation too: a pending image save from the
+    // previous project would otherwise report its stale failure onto the new
+    // (empty) project after this reset clears the store.
+    ++backgroundImageSaveGeneration;
     set(() => {
       if (typeof window !== "undefined") {
         clearProjectFromStorage();
-        enqueueVideoOp(clearVideoFromStorage).then((cleared) => {
+        enqueueStorageOp(clearVideoFromStorage).then((cleared) => {
           if (!cleared) {
             useEditorStore
               .getState()
@@ -1128,9 +1250,15 @@ export const useEditorStore = create<EditorState>((set) => ({
               );
           }
         });
+        // The background image can't resurrect on its own (a leftover blob
+        // needs saved mode "image" + a persisted URL to matter, and this clear
+        // wipes the localStorage project too), so no user warning here.
+        enqueueStorageOp(clearBackgroundImageFromStorage);
       }
       const prevUrl = useEditorStore.getState().videoUrl;
       if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+      const prevBgUrl = useEditorStore.getState().project.globalStyle.background.imageUrl;
+      if (prevBgUrl && prevBgUrl.startsWith("blob:")) URL.revokeObjectURL(prevBgUrl);
       return {
         project: {
           id: uuid(),
@@ -1144,6 +1272,7 @@ export const useEditorStore = create<EditorState>((set) => ({
           dictionary: [],
           isTranscribing: false,
           error: null,
+          demoMode: false,
         },
         groupLayouts: {},
         currentTime: 0,
@@ -1183,6 +1312,7 @@ if (typeof window !== "undefined") {
         speakerMotions: s.project.speakerMotions,
         dictionary: s.project.dictionary,
         groupLayouts: s.groupLayouts,
+        demoMode: s.project.demoMode,
       });
     }, 300);
   });
