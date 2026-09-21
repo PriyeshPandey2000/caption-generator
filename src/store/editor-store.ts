@@ -17,6 +17,7 @@ import {
 } from "@/core/types";
 import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
+import { preprocessBackgroundImage } from "@/core/background-image";
 import { isSingleToken } from "@/core/dictionary";
 import { createDemoTranscription, DEMO_VIDEO_URL } from "@/core/demo";
 import { ChoreographyBundle, highlightEmphasisWords } from "@/core/choreography";
@@ -437,29 +438,42 @@ export const useEditorStore = create<EditorState>((set) => ({
   // survive reloads) while the compositor uses a live object URL in-session.
   setBackgroundImageFile: (file) => {
     const gen = ++backgroundImageSaveGeneration;
-    const url = URL.createObjectURL(file);
-    const prevUrl = useEditorStore.getState().project.globalStyle.background.imageUrl;
-    if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
-    set((s) => ({
-      project: {
-        ...s.project,
-        globalStyle: {
-          ...s.project.globalStyle,
-          background: { ...s.project.globalStyle.background, imageUrl: url },
+    // Normalize the upload once (downscale oversized images, re-encode) so
+    // every later composite draws at or near 1:1 instead of stretching a
+    // multi-megapixel photo inside the per-frame compositor.
+    void preprocessBackgroundImage(file).then((processed) => {
+      // A later pick or New Project superseded this upload while it was still
+      // decoding. Drop the result entirely: applying it would replace the
+      // active background and persist stale bytes over the newer image.
+      if (backgroundImageSaveGeneration !== gen) return;
+      const finalFile = processed ?? file;
+      const url = URL.createObjectURL(finalFile);
+      // Revoke whatever blob was live when this became the current image (a
+      // rejected save in the meantime or a restore can have changed it since
+      // the pick was made), never the URL captured at call time.
+      const prevUrl = useEditorStore.getState().project.globalStyle.background.imageUrl;
+      if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+      set((s) => ({
+        project: {
+          ...s.project,
+          globalStyle: {
+            ...s.project.globalStyle,
+            background: { ...s.project.globalStyle.background, imageUrl: url },
+          },
         },
-      },
-    }));
-    enqueueStorageOp(() => saveBackgroundImageToStorage(file)).then((persisted) => {
-      // Only report a failure if this save's generation is still current; a
-      // replacement or New Project after this save started means the result
-      // belongs to a stale image.
-      if (!persisted && backgroundImageSaveGeneration === gen) {
-        useEditorStore
-          .getState()
-          .setError(
-            "Your background image shows but couldn't be saved locally — it may disappear after a refresh. The browser may be blocking storage or out of space."
-          );
-      }
+      }));
+      enqueueStorageOp(() => saveBackgroundImageToStorage(finalFile)).then((persisted) => {
+        // Only report a failure if this save's generation is still current; a
+        // replacement or New Project after this save started means the result
+        // belongs to a stale image.
+        if (!persisted && backgroundImageSaveGeneration === gen) {
+          useEditorStore
+            .getState()
+            .setError(
+              "Your background image shows but couldn't be saved locally — it may disappear after a refresh. The browser may be blocking storage or out of space."
+            );
+        }
+      });
     });
   },
 

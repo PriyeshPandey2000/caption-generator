@@ -84,7 +84,12 @@ export default function BackgroundPanel() {
             max={30}
             value={background.blurAmount}
             onChange={(e) => setBackgroundBlurAmount(Number(e.target.value))}
-            className="w-full accent-[#00FF66]"
+            className="w-full"
+            style={
+              {
+                "--slider-fill": `${((background.blurAmount - 2) / (30 - 2)) * 100}%`,
+              } as React.CSSProperties
+            }
           />
         </div>
       )}
