@@ -110,11 +110,22 @@ export interface CameraEvent {
   source: "auto" | "word" | "punchline" | "speaker" | "manual";
 }
 
+/** Reframe offset for the platform (9:16) crop: which part of the source
+ * video fills the short-form frame, normalized so (-1,-1) = top-left,
+ * (1,1) = bottom-right, (0,0) = centered (the default). */
+export interface ReframeOffset {
+  x: number;
+  y: number;
+}
+
 export interface VideoEffects {
   cameraEvents: CameraEvent[];
   maxScale: number;
   inDuration: number;
   outDuration: number;
+  /** User-picked framing for the platform crop; ignored unless a platform
+   * preview/export is active. */
+  reframe: ReframeOffset;
 }
 
 export type SfxDensity = "off" | "subtle" | "balanced" | "energetic" | "chaotic";

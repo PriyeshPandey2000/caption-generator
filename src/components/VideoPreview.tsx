@@ -10,6 +10,26 @@ import { sampleZoom } from "@/core/zoom";
 import { sfxEngine } from "@/core/audio";
 import { EXPORT_DESIGN_WIDTH } from "@/core/scene-renderer";
 
+// Transient affordance for platform-crop reframing. Keyed by the selected
+// platform in the parent so re-picking a platform shows it again; it fades on
+// its own 6s timer (state initialized, never set synchronously in the effect).
+function ReframeHint({ active }: { active: boolean }) {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const t = setTimeout(() => setVisible(false), 6000);
+    return () => clearTimeout(t);
+  }, [active]);
+
+  if (!active || !visible) return null;
+  return (
+    <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-2.5 py-1 rounded-full bg-black/70 text-white/90 text-[11px] whitespace-nowrap">
+      Drag to reframe · double-click to reset
+    </div>
+  );
+}
+
 export default function VideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const zoomRef = useRef<HTMLDivElement>(null);
@@ -29,6 +49,24 @@ export default function VideoPreview() {
   const sfxSettings = useEditorStore((s) => s.project.globalStyle.sfx);
   const sfxEvents = useEditorStore((s) => s.project.composition.sfxEvents);
   const backgroundMode = useEditorStore((s) => s.project.globalStyle.background.mode);
+  const reframe = useEditorStore((s) => s.project.globalStyle.videoEffects.reframe);
+  const setReframe = useEditorStore((s) => s.setReframe);
+  const cropActive = previewPlatform !== "none";
+
+  // Platform-crop reframing: the aspect-[9/16] box clips the object-cover
+  // video; dragging shifts which part of the source fills the frame. Mirrors
+  // the export's cover-scale margin so what the user frames is what renders.
+  const dragRef = useRef({
+    active: false,
+    startX: 0,
+    startY: 0,
+    tx: 0,
+    ty: 0,
+    marginX: 0,
+    marginY: 0,
+    moved: false,
+  });
+  const suppressClickRef = useRef(false);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) {
@@ -90,6 +128,12 @@ export default function VideoPreview() {
   }, [currentTime, videoUrl]);
 
   const handleVideoClick = useCallback(() => {
+    // A reframe drag ends with a click on the same element; don't also toggle
+    // playback when the user was just grabbing the frame.
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
     handlePlayPause();
   }, [handlePlayPause]);
 
@@ -186,6 +230,83 @@ export default function VideoPreview() {
     return () => cancelAnimationFrame(rafId);
   }, [isPlaying, videoEffects, sfxSettings.enabled, sfxEvents]);
 
+  // --- Platform-crop reframing gestures (pointer events on the crop box) ---
+  const handleReframePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!cropActive) return;
+      const video = videoRef.current;
+      const box = e.currentTarget;
+      if (!video || video.videoWidth === 0 || video.videoHeight === 0) return;
+      const boxW = box.clientWidth;
+      const boxH = box.clientHeight;
+      if (boxW <= 0 || boxH <= 0) return;
+      // Cover scale + overflow margin in display px — the room the crop
+      // window can slide in (same geometry as the export's cover math, at
+      // zoom = 1; reframing is authored while paused/scrubbing).
+      const cover = Math.max(boxW / video.videoWidth, boxH / video.videoHeight);
+      const dispW = video.videoWidth * cover;
+      const dispH = video.videoHeight * cover;
+      const marginX = Math.max(0, (dispW - boxW) / 2);
+      const marginY = Math.max(0, (dispH - boxH) / 2);
+      const cur = useEditorStore.getState().project.globalStyle.videoEffects.reframe;
+      dragRef.current = {
+        active: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        tx: cur.x,
+        ty: cur.y,
+        marginX,
+        marginY,
+        moved: false,
+      };
+      try {
+        box.setPointerCapture(e.pointerId);
+      } catch {
+        // Pointer already gone; pointermove will no-op on !active.
+      }
+    },
+    [cropActive]
+  );
+
+  const handleReframePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const d = dragRef.current;
+      if (!d.active) return;
+      const dx = e.clientX - d.startX;
+      const dy = e.clientY - d.startY;
+      if (!d.moved && Math.hypot(dx, dy) < 3) return;
+      d.moved = true;
+      suppressClickRef.current = true;
+      // 1:1 track: a drag over the full overflow margin sweeps the frame.
+      // The content follows the pointer: pulling the picture right (dx > 0)
+      // moves what's under the window left (reframe.x decreases).
+      const nx = d.marginX > 0.5 ? d.tx - dx / d.marginX : d.tx;
+      const ny = d.marginY > 0.5 ? d.ty - dy / d.marginY : d.ty;
+      setReframe({ x: nx, y: ny });
+    },
+    [setReframe]
+  );
+
+  const handleReframePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const d = dragRef.current;
+      if (!d.active) return;
+      d.active = false;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // Capture may already be released after pointerup.
+      }
+      if (d.moved) suppressClickRef.current = true;
+    },
+    []
+  );
+
+  const handleReframeReset = useCallback(() => {
+    if (!cropActive) return;
+    setReframe(null);
+  }, [cropActive, setReframe]);
+
   if (!videoUrl) return null;
 
   const displayedVideoWidth = surface
@@ -206,9 +327,17 @@ export default function VideoPreview() {
         className="relative flex-1 min-h-0 bg-zinc-950 rounded-lg overflow-hidden flex items-center justify-center"
       >
         <div
+          onPointerDown={cropActive ? handleReframePointerDown : undefined}
+          onPointerMove={cropActive ? handleReframePointerMove : undefined}
+          onPointerUp={cropActive ? handleReframePointerUp : undefined}
+          onPointerCancel={cropActive ? handleReframePointerUp : undefined}
+          onDoubleClick={handleReframeReset}
           className={`relative h-full bg-black overflow-hidden ${
-            previewPlatform !== "none" ? "aspect-[9/16] max-w-full ring-1 ring-white/15" : "w-full"
+            cropActive
+              ? "aspect-[9/16] max-w-full ring-1 ring-white/15 cursor-grab active:cursor-grabbing select-none"
+              : "w-full"
           }`}
+          style={cropActive ? { touchAction: "none" } : undefined}
         >
           <div
             ref={zoomRef}
@@ -236,9 +365,14 @@ export default function VideoPreview() {
                   e.currentTarget.currentTime = Math.min(storeT, d - 0.001);
                 }
               }}
-              className={`w-full h-full ${previewPlatform !== "none" ? "object-cover" : "object-contain"} ${
+              className={`w-full h-full ${cropActive ? "object-cover" : "object-contain"} ${
                 backgroundMode !== "none" ? "opacity-0" : ""
               }`}
+              style={
+                cropActive
+                  ? { objectPosition: `${(reframe.x + 1) * 50}% ${(reframe.y + 1) * 50}%` }
+                  : undefined
+              }
               playsInline
               onClick={handleVideoClick}
             />
@@ -247,8 +381,13 @@ export default function VideoPreview() {
                 videoRef={videoRef}
                 onClick={handleVideoClick}
                 className={`absolute inset-0 w-full h-full cursor-pointer ${
-                  previewPlatform !== "none" ? "object-cover" : "object-contain"
+                  cropActive ? "object-cover" : "object-contain"
                 }`}
+                style={
+                  cropActive
+                    ? { objectPosition: `${(reframe.x + 1) * 50}% ${(reframe.y + 1) * 50}%` }
+                    : undefined
+                }
               />
             )}
           </div>
@@ -262,6 +401,7 @@ export default function VideoPreview() {
           />
           <CaptionOverlay onBackgroundClick={handlePlayPause} scaleFactor={captionScale} />
           <PlatformPreviewOverlay platform={previewPlatform} />
+          <ReframeHint key={previewPlatform} active={cropActive} />
         </div>
         <PlatformPreviewToggle
           value={previewPlatform}

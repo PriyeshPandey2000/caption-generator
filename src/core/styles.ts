@@ -68,6 +68,7 @@ export const defaultVideoEffects: VideoEffects = {
   maxScale: 1.12,
   inDuration: 150,
   outDuration: 300,
+  reframe: { x: 0, y: 0 },
 };
 
 export const defaultSfxSettings: SfxSettings = {
