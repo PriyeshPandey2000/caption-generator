@@ -468,20 +468,23 @@ export function paintExportFrame(canvas: HTMLCanvasElement, opts: SceneDrawOptio
     const crop = opts.previewPlatform !== "none";
     const srcW = videoW;
     const srcH = videoH;
-    let scale: number;
-    if (crop) {
-      scale = Math.max(outW / srcW, outH / srcH) * zoom;
-    } else {
-      scale = Math.min(outW / srcW, outH / srcH) * zoom;
-    }
+    // Base cover scale at zoom = 1; camera zoom multiplies it. The reframe
+    // margin is derived from these pre-zoom dimensions scaled by zoom, which
+    // reproduces the preview's object-position physics exactly (the object
+    // offset is applied to the unscaled layer, then the whole layer zooms).
+    const baseScale =
+      crop ? Math.max(outW / srcW, outH / srcH) : Math.min(outW / srcW, outH / srcH);
+    const baseDw = srcW * baseScale;
+    const baseDh = srcH * baseScale;
+    const scale = baseScale * zoom;
     const dw = srcW * scale;
     const dh = srcH * scale;
     // Reframe: the crop window slides within the cover-scale overflow margin
     // by reframe.x/y (normalized -1..1, 0 = centered) — the same framing the
     // preview shows via object-position. Touched only for the platform crop.
     const rf = opts.globalStyle.videoEffects.reframe ?? { x: 0, y: 0 };
-    const marginX = crop ? Math.max(0, (dw - outW) / 2) : 0;
-    const marginY = crop ? Math.max(0, (dh - outH) / 2) : 0;
+    const marginX = crop ? Math.max(0, (baseDw - outW) / 2) * zoom : 0;
+    const marginY = crop ? Math.max(0, (baseDh - outH) / 2) * zoom : 0;
     const sx = (outW - dw) / 2 - (rf.x ?? 0) * marginX;
     const sy = (outH - dh) / 2 - (rf.y ?? 0) * marginY;
     ctx.drawImage(video, sx, sy, dw, dh);

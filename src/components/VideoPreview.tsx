@@ -278,8 +278,10 @@ export default function VideoPreview() {
       d.moved = true;
       suppressClickRef.current = true;
       // 1:1 track: a drag over the full overflow margin sweeps the frame.
-      const nx = d.marginX > 0.5 ? d.tx + dx / d.marginX : d.tx;
-      const ny = d.marginY > 0.5 ? d.ty + dy / d.marginY : d.ty;
+      // The content follows the pointer: pulling the picture right (dx > 0)
+      // moves what's under the window left (reframe.x decreases).
+      const nx = d.marginX > 0.5 ? d.tx - dx / d.marginX : d.tx;
+      const ny = d.marginY > 0.5 ? d.ty - dy / d.marginY : d.ty;
       setReframe({ x: nx, y: ny });
     },
     [setReframe]
