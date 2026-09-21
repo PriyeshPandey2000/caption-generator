@@ -81,6 +81,8 @@ export async function createBackgroundCompositor(): Promise<BackgroundCompositor
       } else if (background.mode === "image" && background.imageUrl) {
         try {
           const img = await loadBgImage(background.imageUrl);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
           ctx.drawImage(img, 0, 0, w, h);
         } catch {
           ctx.fillStyle = "#000000";

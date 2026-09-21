@@ -169,6 +169,8 @@ export default function BackgroundLayer({
         ctx.fillStyle = background.color;
         ctx.fillRect(0, 0, w, h);
       } else if (background.mode === "image" && bgImageRef.current?.complete) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
         ctx.drawImage(bgImageRef.current, 0, 0, w, h);
       } else {
         ctx.fillStyle = "#000000";
