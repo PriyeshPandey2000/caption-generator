@@ -12,6 +12,7 @@ import {
   SfxName,
   Composition,
   PreviewPlatform,
+  ReframeOffset,
   DictionaryEntry,
   BackgroundMode,
 } from "@/core/types";
@@ -92,6 +93,8 @@ interface EditorState {
   applyPreset: (preset: Partial<GlobalStyle>) => void;
   toggleCameraMovement: (enabled: boolean) => void;
   setCameraIntensity: (intensity: number) => void;
+  /** Frames the platform crop by dragging the preview: null resets to center. */
+  setReframe: (offset: Partial<ReframeOffset> | null) => void;
   addManualCameraEvent: (wordId: string, intensity: number) => void;
   setSfxEnabled: (enabled: boolean) => void;
   setSfxDensity: (density: SfxDensity) => void;
@@ -210,6 +213,10 @@ function cloneDoc(s: EditorState): DocSnapshot {
       groupLayouts: s.groupLayouts,
     })
   );
+}
+
+function clampReframe(v: number): number {
+  return Math.max(-1, Math.min(1, v));
 }
 
 function docChanged(curr: EditorState, prev: EditorState): boolean {
@@ -796,6 +803,26 @@ export const useEditorStore = create<EditorState>((set) => ({
       };
     }),
 
+  setReframe: (offset) =>
+    set((s) => {
+      const r = s.project.globalStyle.videoEffects.reframe;
+      return {
+        project: {
+          ...s.project,
+          globalStyle: {
+            ...s.project.globalStyle,
+            videoEffects: {
+              ...s.project.globalStyle.videoEffects,
+              reframe: {
+                x: offset == null ? 0 : clampReframe(offset.x ?? r.x),
+                y: offset == null ? 0 : clampReframe(offset.y ?? r.y),
+              },
+            },
+          },
+        },
+      };
+    }),
+
   addManualCameraEvent: (wordId, intensity) =>
     set((s) => {
       const ve = s.project.globalStyle.videoEffects;
@@ -1213,6 +1240,10 @@ export const useEditorStore = create<EditorState>((set) => ({
           videoEffects: {
             ...defaultGlobalStyle.videoEffects,
             ...data.globalStyle.videoEffects,
+            reframe: {
+              ...defaultGlobalStyle.videoEffects.reframe,
+              ...data.globalStyle.videoEffects?.reframe,
+            },
           },
           sfx: {
             ...defaultGlobalStyle.sfx,

@@ -18,10 +18,12 @@ export default function BackgroundLayer({
   videoRef,
   className,
   onClick,
+  style,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   className?: string;
   onClick?: () => void;
+  style?: React.CSSProperties;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const personCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -317,5 +319,5 @@ export default function BackgroundLayer({
 
   if (background.mode === "none") return null;
 
-  return <canvas ref={canvasRef} className={className} onClick={onClick} />;
+  return <canvas ref={canvasRef} className={className} style={style} onClick={onClick} />;
 }

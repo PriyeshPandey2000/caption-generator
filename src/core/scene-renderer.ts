@@ -443,10 +443,10 @@ export interface SceneDrawOptions {
 
 /**
  * Paints one full output frame: black canvas, the video (camera zoom applied
- * around center, object-cover when a platform crop is active, contain
- * otherwise — matching VideoPreview), the bottom gradient, then the active
- * caption group. No editor chrome (selection frames / toolbar / platform
- * preview overlay) is drawn.
+ * around center, object-cover when a platform crop is active with the user's
+ * reframe offset, contain otherwise — matching VideoPreview), the bottom
+ * gradient, then the active caption group. No editor chrome (selection frames
+ * / toolbar / platform preview overlay) is drawn.
  */
 export function paintExportFrame(canvas: HTMLCanvasElement, opts: SceneDrawOptions) {
   const ctx = canvas.getContext("2d");
@@ -476,8 +476,14 @@ export function paintExportFrame(canvas: HTMLCanvasElement, opts: SceneDrawOptio
     }
     const dw = srcW * scale;
     const dh = srcH * scale;
-    const sx = (outW - dw) / 2;
-    const sy = (outH - dh) / 2;
+    // Reframe: the crop window slides within the cover-scale overflow margin
+    // by reframe.x/y (normalized -1..1, 0 = centered) — the same framing the
+    // preview shows via object-position. Touched only for the platform crop.
+    const rf = opts.globalStyle.videoEffects.reframe ?? { x: 0, y: 0 };
+    const marginX = crop ? Math.max(0, (dw - outW) / 2) : 0;
+    const marginY = crop ? Math.max(0, (dh - outH) / 2) : 0;
+    const sx = (outW - dw) / 2 - (rf.x ?? 0) * marginX;
+    const sy = (outH - dh) / 2 - (rf.y ?? 0) * marginY;
     ctx.drawImage(video, sx, sy, dw, dh);
   }
 
