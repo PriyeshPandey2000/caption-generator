@@ -33,16 +33,31 @@ export function saveProjectToStorage(
   if (typeof window === "undefined") return;
   const payload: PersistedProject = { ...data, savedAt: Date.now() };
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // storage full or unavailable — do nothing, project still works in-memory
   }
 }
 
+// True only when this page was reached by refreshing the current tab (navigation
+// entry type "reload"). The persisted project + video blobs are meant to carry
+// an in-progress edit across an accidental refresh — they must NOT outlive the
+// session. sessionStorage is already per-tab, but a duplicated tab, a browser
+// restore after a crash, or a back/forward traversal can resurrect stale data,
+// so restore is deliberately limited to reload navigation.
+export function canRestorePersistedProject(): boolean {
+  if (typeof window === "undefined") return false;
+  const nav = performance.getEntriesByType("navigation")[0] as
+    | PerformanceNavigationTiming
+    | undefined;
+  return nav?.type === "reload";
+}
+
 export function loadProjectFromStorage(): PersistedProject | null {
   if (typeof window === "undefined") return null;
+  if (!canRestorePersistedProject()) return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedProject;
     if (!parsed || !parsed.globalStyle) return null;
@@ -55,7 +70,7 @@ export function loadProjectFromStorage(): PersistedProject | null {
 export function clearProjectFromStorage(): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
   } catch {
     // ignore
   }

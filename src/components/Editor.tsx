@@ -61,19 +61,24 @@ export default function Editor() {
   const [activePanel, setActivePanel] = useState<Panel>("inspector");
   const [showTranscript, setShowTranscript] = useState(true);
   const [showStylePanel, setShowStylePanel] = useState(true);
-  // Root URL always shows the hero first, even when a project was restored
-  // from a previous session — a returning visitor explicitly resumes via the
-  // card below instead of being auto-dropped into the editor. Actions that
-  // create a *new* transcription (upload, demo) set this true themselves, so
-  // that flow goes straight through once transcription resolves.
-  const [entered, setEntered] = useState(false);
+  // Root URL always shows the hero first on a fresh visit. Restore is scoped
+  // to the same tab session (sessionStorage + IndexedDB), so a reload of an
+  // already-editing tab keeps its captions and lands back in the editor; a
+  // new visit restores nothing and starts clean at the hero. Actions that
+  // create a *new* transcription (upload, demo) set entered true themselves,
+  // so that flow goes straight through once transcription resolves.
+  const [entered, setEntered] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const saved = loadProjectFromStorage();
+    return !!(saved && saved.transcription);
+  });
   const [restorePending, setRestorePending] = useState(() => {
     // Replicates the mount effect's synchronous read: a project whose
     // transcript was restored is a project whose video blob is about to be
     // read back from IndexedDB asynchronously. From the very first render the
     // editor knows to hold the "Restoring your video…" state until that read
     // settles instead of falling through to the captions-only surface. (Same
-    // localStorage-in-initializer pattern as the apiKey state above.)
+    // storage-in-initializer pattern as the apiKey state above.)
     if (typeof window === "undefined") return false;
     const saved = loadProjectFromStorage();
     return !!(saved && saved.transcription);
@@ -110,42 +115,51 @@ export default function Editor() {
   useDemoPlayback(isDemoMode);
 
   useEffect(() => {
+    // Restore is session-scoped: the project lives in sessionStorage, so only
+    // a reload of the SAME tab carries a saved transcript back. IndexedDB is
+    // not session-scoped, so the video blob is only read when this tab has a
+    // saved project — otherwise a stale blob from a previous tab/visit would
+    // resurrect onto a brand-new session. New visits always start at the hero.
     const saved = loadProjectFromStorage();
     if (saved && saved.transcription) {
       restorePersisted(saved);
-      // restorePending was seeded from the same read in its useState
-      // initializer, so the editor already holds "Restoring your video…"
-      // while the async video-blob read below settles.
+      // entered was seeded from the same read in its useState initializer, so
+      // a same-tab reload auto-enters the editor with captions restored (fresh
+      // visits restore nothing and stay at the hero). The restorePending
+      // initializer likewise already holds "Restoring your video…" while the
+      // async video-blob read below settles.
     }
     // Capture the generation this restore belongs to. If the user starts a New
     // Project (newProject swaps in a fresh project.id) while the IndexedDB read
     // below is still pending, the restoring of a stale blob must be ignored.
     const loadProjectId = useEditorStore.getState().project.id;
-    // Restore the uploaded video from IndexedDB so the preview survives a
-    // page refresh (object URLs do not persist across reloads).
+    // Restore the uploaded video from IndexedDB so the same-tab preview
+    // survives a refresh (object URLs do not persist across reloads).
     let cancelled = false;
-    loadVideoFromStorage().then((video) => {
-      if (cancelled) return;
-      // The read finished but the user already moved to a new project —
-      // never restore a stale blob onto it.
-      if (useEditorStore.getState().project.id !== loadProjectId) return;
-      // A user selection made while this read was pending wins over the
-      // persisted blob.
-      if (useEditorStore.getState().videoFile) return;
-      if (video && video.blob) {
-        const file = new File([video.blob], video.name || "video", {
-          type: video.type || video.blob.type || "video/mp4",
-        });
-        const url = URL.createObjectURL(file);
-        useEditorStore.getState().setRestoredVideo(file, url);
-      } else if (saved?.demoMode) {
-        useEditorStore.getState().loadDemo();
-      }
-      // The read settled: either the video (or demo video) is attached, or the
-      // project genuinely has no video to restore. Release the loading state
-      // so the editor resolves to its real fallback instead of spinning.
-      setRestorePending(false);
-    });
+    if (saved?.transcription) {
+      loadVideoFromStorage().then((video) => {
+        if (cancelled) return;
+        // The read finished but the user already moved to a new project —
+        // never restore a stale blob onto it.
+        if (useEditorStore.getState().project.id !== loadProjectId) return;
+        // A user selection made while this read was pending wins over the
+        // persisted blob.
+        if (useEditorStore.getState().videoFile) return;
+        if (video && video.blob) {
+          const file = new File([video.blob], video.name || "video", {
+            type: video.type || video.blob.type || "video/mp4",
+          });
+          const url = URL.createObjectURL(file);
+          useEditorStore.getState().setRestoredVideo(file, url);
+        } else if (saved.demoMode) {
+          useEditorStore.getState().loadDemo();
+        }
+        // The read settled: either the video (or demo video) is attached, or the
+        // project genuinely has no video to restore. Release the loading state
+        // so the editor resolves to its real fallback instead of spinning.
+        setRestorePending(false);
+      });
+    }
     // The persisted image URL was a blob: URL (safety-netted to empty by
     // restorePersisted); the actual bytes live in IndexedDB. Recreate a fresh
     // object URL so the image background survives the reload — whenever a blob
@@ -439,35 +453,6 @@ export default function Editor() {
                     </div>
                   </div>
                 </div>
-
-                {transcription && !entered && (
-                  <div className="w-full max-w-2xl flex items-center justify-between gap-3 rounded-xl border border-[#00FF66]/30 bg-[#00FF66]/5 px-4 py-3">
-                    <div className="text-sm text-white">
-                      <span className="font-semibold">Continue your last project</span>
-                      <span className="text-zinc-400"> — {transcription.words.length} words</span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => {
-                          clearProjectFromStorage();
-                          newProject();
-                          setEntered(false);
-                          setRestorePending(false);
-                        }}
-                        className="text-xs text-zinc-400 hover:text-white transition-colors"
-                      >
-                        Start fresh
-                      </button>
-                      <button
-                        onClick={() => setEntered(true)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-black transition-transform hover:scale-[1.03]"
-                        style={{ backgroundImage: "linear-gradient(120deg,#00ff66,#22c55e)" }}
-                      >
-                        Resume →
-                      </button>
-                    </div>
-                  </div>
-                )}
 
                 <div className="w-full max-w-2xl">
                   <UploadZone
