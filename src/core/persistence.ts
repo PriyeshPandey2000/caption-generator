@@ -39,8 +39,23 @@ export function saveProjectToStorage(
   }
 }
 
+// True only when this page was reached by refreshing the current tab (navigation
+// entry type "reload"). The persisted project + video blobs are meant to carry
+// an in-progress edit across an accidental refresh — they must NOT outlive the
+// session. sessionStorage is already per-tab, but a duplicated tab, a browser
+// restore after a crash, or a back/forward traversal can resurrect stale data,
+// so restore is deliberately limited to reload navigation.
+export function canRestorePersistedProject(): boolean {
+  if (typeof window === "undefined") return false;
+  const nav = performance.getEntriesByType("navigation")[0] as
+    | PerformanceNavigationTiming
+    | undefined;
+  return nav?.type === "reload";
+}
+
 export function loadProjectFromStorage(): PersistedProject | null {
   if (typeof window === "undefined") return null;
+  if (!canRestorePersistedProject()) return null;
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
