@@ -33,7 +33,7 @@ export function saveProjectToStorage(
   if (typeof window === "undefined") return;
   const payload: PersistedProject = { ...data, savedAt: Date.now() };
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // storage full or unavailable — do nothing, project still works in-memory
   }
@@ -42,7 +42,7 @@ export function saveProjectToStorage(
 export function loadProjectFromStorage(): PersistedProject | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedProject;
     if (!parsed || !parsed.globalStyle) return null;
@@ -55,7 +55,7 @@ export function loadProjectFromStorage(): PersistedProject | null {
 export function clearProjectFromStorage(): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
   } catch {
     // ignore
   }
