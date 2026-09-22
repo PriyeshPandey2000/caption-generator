@@ -98,6 +98,7 @@ export interface GlobalStyle {
   videoEffects: VideoEffects;
   background: BackgroundSettings;
   sfx: SfxSettings;
+  music: MusicSettings;
 }
 
 export interface CameraEvent {
@@ -155,6 +156,17 @@ export interface SfxSettings {
   offsetMs: number;
   pack: SfxPackId;
   sfxSeed: number;
+}
+
+/** Background-music bed mixed under the captioned video. The track itself is
+ * kept in IndexedDB like the uploads; `url` is the live (per-document) object
+ * URL. Volume is the base music gain; ducking lowers it while a captioned word
+ * is active so the voice stays intelligible. */
+export interface MusicSettings {
+  url: string | null;
+  name: string | null;
+  volume: number;
+  duckEnabled: boolean;
 }
 
 export interface SfxEvent {

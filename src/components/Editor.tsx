@@ -16,6 +16,7 @@ import {
   clearProjectFromStorage,
   loadVideoFromStorage,
   loadBackgroundImageFromStorage,
+  loadMusicFromStorage,
 } from "@/core/persistence";
 import UploadZone from "@/components/UploadZone";
 import VideoPreview from "@/components/VideoPreview";
@@ -114,6 +115,51 @@ export default function Editor() {
   const isDemoMode = !!transcription && !videoUrl;
   useDemoPlayback(isDemoMode);
 
+  // --- Background-music playback (preview) -------------------------
+  // A hidden <audio> element loops the bed track and follows the transport:
+  // play/pause with the video, seek on scrubbing, and duck under whatever
+  // word is active so the voice stays intelligible.
+  const music = useEditorStore((s) => s.project.globalStyle.music);
+  const currentTime = useEditorStore((s) => s.currentTime);
+  const musicElRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const el = musicElRef.current;
+    if (!el || !music.url) return;
+    if (isPlaying) el.play().catch(() => {});
+    else el.pause();
+  }, [isPlaying, music.url]);
+
+  // Seek the bed track to the transport only when they drift apart, so the
+  // timeline scrubbing and the video's own advance dictate the position
+  // instead of resync fighting the element's natural playback.
+  useEffect(() => {
+    const el = musicElRef.current;
+    if (!el || !music.url) return;
+    // Apply the configured gain before the duration guard below: while the
+    // element's metadata is still loading it would otherwise never be set,
+    // leaving the track at the browser default (1.0) instead of the user's
+    // volume. Duck the bed under the current word (when enabled); otherwise
+    // hold the base volume.
+    const activeWord = transcription?.words.some(
+      (w) => currentTime >= w.start && currentTime < w.end
+    );
+    const target = activeWord && music.duckEnabled ? music.volume * 0.4 : music.volume;
+    if (Math.abs(el.volume - target) > 0.02) el.volume = target;
+    // Seek the bed track to the transport only when they drift apart, so the
+    // timeline scrubbing and the video's own advance dictate the position
+    // instead of resync fighting the element's natural playback.
+    if (!Number.isFinite(el.duration)) return;
+    if (Math.abs(el.currentTime - currentTime) > 0.35) {
+      el.currentTime = Math.min(currentTime, el.duration - 0.05);
+    }
+  }, [currentTime, music.url, music.volume, music.duckEnabled, transcription]);
+
+  // Clean up the loop if the track is removed while playing.
+  useEffect(() => {
+    if (!music.url) musicElRef.current?.pause();
+  }, [music.url]);
+
   useEffect(() => {
     // Restore is session-scoped: the project lives in sessionStorage, so only
     // a reload of the SAME tab carries a saved transcript back. IndexedDB is
@@ -183,6 +229,21 @@ export default function Editor() {
       if (bg?.mode === "image" && current.mode === "none") {
         useEditorStore.getState().setBackgroundMode("image");
       }
+    });
+    // Music bytes follow the same path: the persisted project holds a dead
+    // blob: URL (safety-netted to null by restorePersisted), so recreate a
+    // live object URL whenever the banner survived in IndexedDB. The track is
+    // scoped to the project id, which now matches the restored snapshot's id.
+    const hadMusic =
+      typeof saved?.globalStyle?.music?.url === "string" &&
+      saved.globalStyle.music.url.startsWith("blob:");
+    loadMusicFromStorage(useEditorStore.getState().project.id).then((blob) => {
+      if (cancelled) return;
+      if (useEditorStore.getState().project.id !== loadProjectId) return;
+      if (!hadMusic || !blob) return;
+      const current = useEditorStore.getState().project.globalStyle.music;
+      if (current.url) return;
+      useEditorStore.getState().setMusicUrl(URL.createObjectURL(blob));
     });
     return () => {
       cancelled = true;
@@ -343,6 +404,14 @@ export default function Editor() {
 
   return (
     <div className="flex flex-col h-screen bg-zinc-900 text-white">
+      {/* Hidden bed-music player; driven entirely by the BGM sync effects. */}
+      <audio
+        ref={musicElRef}
+        src={music.url ?? undefined}
+        loop
+        preload="metadata"
+        className="hidden"
+      />
       <header className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-900">
         <div className="flex items-center gap-3">
           <Link href="/" className="font-display text-lg font-bold tracking-tight">

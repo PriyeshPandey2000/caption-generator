@@ -29,6 +29,8 @@ import {
   clearVideoFromStorage,
   saveBackgroundImageToStorage,
   clearBackgroundImageFromStorage,
+  saveMusicToStorage,
+  clearMusicFromStorage,
 } from "@/core/persistence";
 import {
   buildCameraTimeline,
@@ -109,6 +111,12 @@ interface EditorState {
   setBackgroundImage: (imageUrl: string | null) => void;
   setBackgroundImageFile: (file: File) => void;
   setBackgroundBlurAmount: (blurAmount: number) => void;
+  /** Restores a recreated music object URL after a reload (bytes live in IDB). */
+  setMusicUrl: (url: string | null) => void;
+  setMusicFile: (file: File) => void;
+  setMusicVolume: (volume: number) => void;
+  setMusicDuck: (enabled: boolean) => void;
+  clearMusic: () => void;
   restorePersisted: (data: {
     transcription: TranscriptionResult | null;
     globalStyle: GlobalStyle;
@@ -118,6 +126,7 @@ interface EditorState {
     dictionary?: DictionaryEntry[];
     groupLayouts: Record<string, GroupLayout>;
     demoMode?: boolean;
+    projectId?: string;
   }) => void;
   newProject: () => void;
   undo: () => void;
@@ -195,6 +204,10 @@ let videoSaveGeneration = 0;
 // new project starts. Scopes the async IndexedDB save-failure report so a stale
 // `persisted === false` for an old image can't set an error on newer state.
 let backgroundImageSaveGeneration = 0;
+// Monotonic token that increments each time the music track changes or a new
+// project starts. Scopes the async IndexedDB save-failure report so a stale
+// `persisted === false` for an old track can't set an error on newer state.
+let musicSaveGeneration = 0;
 
 function cloneDoc(s: EditorState): DocSnapshot {
   // The document subset is plain JSON-safe data (no functions/dates), so a
@@ -494,6 +507,92 @@ export const useEditorStore = create<EditorState>((set) => ({
         },
       },
     })),
+
+  // Restores a recreated object URL (after a reload) without touching the
+  // persisted bytes — mirrors setBackgroundImage.
+  setMusicUrl: (url) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          music: { ...s.project.globalStyle.music, url },
+        },
+      },
+    })),
+
+  // Mirrors setBackgroundImageFile: keep the bytes in IndexedDB (object URLs
+  // don't survive reloads) while the compositor/player uses a live object URL
+  // in-session. No preprocessing here — audio is used verbatim.
+  setMusicFile: (file) => {
+    const gen = ++musicSaveGeneration;
+    const prevUrl = useEditorStore.getState().project.globalStyle.music.url;
+    if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+    const url = URL.createObjectURL(file);
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          music: { ...s.project.globalStyle.music, url, name: file.name },
+        },
+      },
+    }));
+    enqueueStorageOp(() =>
+      saveMusicToStorage(useEditorStore.getState().project.id, file)
+    ).then((persisted) => {
+      // Only report a failure if this save's generation is still current; a
+      // replacement or New Project after this save started means the result
+      // belongs to a stale track.
+      if (!persisted && musicSaveGeneration === gen) {
+        useEditorStore
+          .getState()
+          .setError(
+            "Your music track plays but couldn't be saved locally — it may disappear after a refresh. The browser may be blocking storage or out of space."
+          );
+      }
+    });
+  },
+
+  setMusicVolume: (volume) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          music: { ...s.project.globalStyle.music, volume },
+        },
+      },
+    })),
+
+  setMusicDuck: (enabled) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          music: { ...s.project.globalStyle.music, duckEnabled: enabled },
+        },
+      },
+    })),
+
+  clearMusic: () => {
+    ++musicSaveGeneration;
+    const prevUrl = useEditorStore.getState().project.globalStyle.music.url;
+    if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+    set((s) => ({
+      project: {
+        ...s.project,
+        globalStyle: {
+          ...s.project.globalStyle,
+          music: { ...s.project.globalStyle.music, url: null, name: null },
+        },
+      },
+    }));
+    enqueueStorageOp(() =>
+      clearMusicFromStorage(useEditorStore.getState().project.id)
+    );
+  },
 
   updateSpeakerStyle: (speaker, style) =>
     set((s) => ({
@@ -1182,6 +1281,13 @@ export const useEditorStore = create<EditorState>((set) => ({
     if (orphanedBgUrl && orphanedBgUrl.startsWith("blob:")) {
       URL.revokeObjectURL(orphanedBgUrl);
     }
+    // Same for the music track: restorePersisted replaces the live URL wholesale
+    // (and the async IndexedDB restore builds a fresh one), so the pre-restore
+    // blob URL is dead weight — revoke it so the browser can free it.
+    const orphanedMusicUrl = useEditorStore.getState().project.globalStyle.music.url;
+    if (orphanedMusicUrl && orphanedMusicUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(orphanedMusicUrl);
+    }
     // A background image picked last session is stored as a blob: URL in the
     // JSON — but blob URLs are per-document and dead after reload. The live
     // bytes live in IndexedDB (see setBackgroundImageFile); here we only need
@@ -1198,9 +1304,28 @@ export const useEditorStore = create<EditorState>((set) => ({
       restoredBackground.imageUrl = null;
       if (restoredBackground.mode === "image") restoredBackground.mode = "none";
     }
+    // Same deal for the music track: the picked blob URL is per-document. Drop
+    // it so the async IndexedDB restore (see Editor.tsx) can recreate a live
+    // URL from the persisted bytes — while keeping the user's volume/duck
+    // prefs. Fading solo music still plays in-session (this branch only runs
+    // across a reload).
+    const restoredMusic = {
+      ...defaultGlobalStyle.music,
+      ...data.globalStyle.music,
+    };
+    if (
+      typeof restoredMusic.url === "string" &&
+      restoredMusic.url.startsWith("blob:")
+    ) {
+      restoredMusic.url = null;
+    }
     set((s) => ({
       project: {
         ...s.project,
+        // Adopt the snapshot's own id so reloads keep the same project scope
+        // (IndexedDB bytes like the music track are keyed by it). Projects saved
+        // before the id was persisted fall back to the live (fresh) id.
+        id: typeof data.projectId === "string" ? data.projectId : s.project.id,
         transcription: data.transcription,
         // Deep-merge onto defaults so a project saved before a field existed
         // (e.g. backgroundColor, videoEffects) restores with the current
@@ -1250,6 +1375,7 @@ export const useEditorStore = create<EditorState>((set) => ({
             ...data.globalStyle.sfx,
           },
           background: restoredBackground,
+          music: restoredMusic,
         },
         composition: {
           sfxEvents: data.composition?.sfxEvents ?? [],
@@ -1283,6 +1409,11 @@ export const useEditorStore = create<EditorState>((set) => ({
     // previous project would otherwise report its stale failure onto the new
     // (empty) project after this reset clears the store.
     ++backgroundImageSaveGeneration;
+    // Same for the music track's save generation.
+    ++musicSaveGeneration;
+    // The id being discarded is whatever project is live right now — capture it
+    // before set() swaps in the fresh project.
+    const discardedProjectId = useEditorStore.getState().project.id;
     set(() => {
       if (typeof window !== "undefined") {
         clearProjectFromStorage();
@@ -1299,11 +1430,16 @@ export const useEditorStore = create<EditorState>((set) => ({
         // needs saved mode "image" + a persisted URL to matter, and this clear
         // wipes the localStorage project too), so no user warning here.
         enqueueStorageOp(clearBackgroundImageFromStorage);
+        // Wipe any music bytes so a stale track can't play over the new
+        // (silent) project. Scoped to the discarded project's id.
+        enqueueStorageOp(() => clearMusicFromStorage(discardedProjectId));
       }
       const prevUrl = useEditorStore.getState().videoUrl;
       if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
       const prevBgUrl = useEditorStore.getState().project.globalStyle.background.imageUrl;
       if (prevBgUrl && prevBgUrl.startsWith("blob:")) URL.revokeObjectURL(prevBgUrl);
+      const prevMusicUrl = useEditorStore.getState().project.globalStyle.music.url;
+      if (prevMusicUrl && prevMusicUrl.startsWith("blob:")) URL.revokeObjectURL(prevMusicUrl);
       return {
         project: {
           id: uuid(),
@@ -1350,6 +1486,7 @@ if (typeof window !== "undefined") {
     persistTimer = setTimeout(() => {
       const s = useEditorStore.getState();
       saveProjectToStorage({
+        projectId: s.project.id,
         transcription: s.project.transcription,
         globalStyle: s.project.globalStyle,
         composition: s.project.composition,

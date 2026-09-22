@@ -1,4 +1,4 @@
-import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle, VideoEffects, SfxSettings, BackgroundSettings } from "./types";
+import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle, VideoEffects, SfxSettings, BackgroundSettings, MusicSettings } from "./types";
 
 // Vertical caption position bounds (percent of video height). Shared so the
 // inspector slider and the render clamp can never drift apart.
@@ -87,6 +87,13 @@ export const defaultBackgroundSettings: BackgroundSettings = {
   blurAmount: 12,
 };
 
+export const defaultMusicSettings: MusicSettings = {
+  url: null,
+  name: null,
+  volume: 0.7,
+  duckEnabled: true,
+};
+
 export const defaultGlobalStyle: GlobalStyle = {
   style: defaultWordStyle,
   motion: defaultMotion,
@@ -95,6 +102,7 @@ export const defaultGlobalStyle: GlobalStyle = {
   videoEffects: defaultVideoEffects,
   background: defaultBackgroundSettings,
   sfx: defaultSfxSettings,
+  music: defaultMusicSettings,
 };
 
 export function resolveWordStyle(

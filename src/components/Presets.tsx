@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { GlobalStyle, WordStyle, SfxDensity, SfxVolume, SfxPackId } from "@/core/types";
 import { resolveChoreography } from "@/core/choreography";
@@ -294,6 +294,11 @@ export default function Presets() {
         Sound Effects
       </h3>
       <SfxControl />
+
+      <h3 className="text-sm font-semibold text-white mt-6 mb-3">
+        Background Music
+      </h3>
+      <MusicControl />
     </div>
   );
 }
@@ -549,6 +554,94 @@ function PresetPreview({ style }: { style?: Partial<WordStyle> }) {
       <span style={previewStyle} className="whitespace-nowrap">
         Big Caption
       </span>
+    </div>
+  );
+}
+
+function MusicControl() {
+  const music = useEditorStore((s) => s.project.globalStyle.music);
+  const setMusicFile = useEditorStore((s) => s.setMusicFile);
+  const setMusicVolume = useEditorStore((s) => s.setMusicVolume);
+  const setMusicDuck = useEditorStore((s) => s.setMusicDuck);
+  const clearMusic = useEditorStore((s) => s.clearMusic);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="space-y-3">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) setMusicFile(file);
+          e.target.value = "";
+        }}
+      />
+
+      {!music.url ? (
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full h-9 rounded-lg border border-dashed border-zinc-600 text-zinc-400 text-xs hover:border-[#00FF66]/40 hover:text-white transition-colors"
+        >
+          ＋ Add music track
+        </button>
+      ) : (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className="text-xs text-zinc-300 truncate"
+              title={music.name ?? undefined}
+            >
+              ♪ {music.name ?? "Music track"}
+            </span>
+            <button
+              type="button"
+              onClick={() => clearMusic()}
+              className="px-2 py-1 text-[10px] text-zinc-500 hover:text-red-400 transition-colors"
+            >
+              Remove
+            </button>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-zinc-500">Volume</span>
+              <span className="text-xs text-zinc-600">{Math.round(music.volume * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(music.volume * 100)}
+              onChange={(e) => setMusicVolume(Number(e.target.value) / 100)}
+              className="w-full accent-[#00FF66]"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-zinc-500">Lower under speech</span>
+            <button
+              type="button"
+              aria-pressed={music.duckEnabled}
+              onClick={() => setMusicDuck(!music.duckEnabled)}
+              className={`
+                relative w-10 h-5 rounded-full transition-colors
+                ${music.duckEnabled ? "bg-[#00FF66]" : "bg-zinc-700"}
+              `}
+            >
+              <span
+                className={`
+                  absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
+                  ${music.duckEnabled ? "translate-x-5" : "translate-x-0.5"}
+                `}
+              />
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
