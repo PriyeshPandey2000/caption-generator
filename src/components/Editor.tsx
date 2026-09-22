@@ -135,17 +135,24 @@ export default function Editor() {
   // instead of resync fighting the element's natural playback.
   useEffect(() => {
     const el = musicElRef.current;
-    if (!el || !music.url || !Number.isFinite(el.duration)) return;
-    if (Math.abs(el.currentTime - currentTime) > 0.35) {
-      el.currentTime = Math.min(currentTime, el.duration - 0.05);
-    }
-    // Duck the bed under the current word (when enabled); otherwise hold the
-    // base volume.
+    if (!el || !music.url) return;
+    // Apply the configured gain before the duration guard below: while the
+    // element's metadata is still loading it would otherwise never be set,
+    // leaving the track at the browser default (1.0) instead of the user's
+    // volume. Duck the bed under the current word (when enabled); otherwise
+    // hold the base volume.
     const activeWord = transcription?.words.some(
       (w) => currentTime >= w.start && currentTime < w.end
     );
     const target = activeWord && music.duckEnabled ? music.volume * 0.4 : music.volume;
     if (Math.abs(el.volume - target) > 0.02) el.volume = target;
+    // Seek the bed track to the transport only when they drift apart, so the
+    // timeline scrubbing and the video's own advance dictate the position
+    // instead of resync fighting the element's natural playback.
+    if (!Number.isFinite(el.duration)) return;
+    if (Math.abs(el.currentTime - currentTime) > 0.35) {
+      el.currentTime = Math.min(currentTime, el.duration - 0.05);
+    }
   }, [currentTime, music.url, music.volume, music.duckEnabled, transcription]);
 
   // Clean up the loop if the track is removed while playing.
@@ -225,11 +232,12 @@ export default function Editor() {
     });
     // Music bytes follow the same path: the persisted project holds a dead
     // blob: URL (safety-netted to null by restorePersisted), so recreate a
-    // live object URL whenever the banner survived in IndexedDB.
+    // live object URL whenever the banner survived in IndexedDB. The track is
+    // scoped to the project id, which now matches the restored snapshot's id.
     const hadMusic =
       typeof saved?.globalStyle?.music?.url === "string" &&
       saved.globalStyle.music.url.startsWith("blob:");
-    loadMusicFromStorage().then((blob) => {
+    loadMusicFromStorage(useEditorStore.getState().project.id).then((blob) => {
       if (cancelled) return;
       if (useEditorStore.getState().project.id !== loadProjectId) return;
       if (!hadMusic || !blob) return;

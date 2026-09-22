@@ -24,6 +24,10 @@ export interface PersistedProject {
   dictionary?: DictionaryEntry[];
   groupLayouts: Record<string, PersistedGroupLayout>;
   demoMode?: boolean;
+  // The id of the project this snapshot belongs to. It's the stable scope for
+  // IndexedDB bytes (video is per-tab, but a project's music track is keyed by
+  // this id so two tabs editing different projects never overwrite each other).
+  projectId?: string;
   savedAt: number;
 }
 
@@ -217,15 +221,28 @@ export async function clearBackgroundImageFromStorage(): Promise<boolean> {
 // --- Background-music persistence (IndexedDB) ---------------------
 //
 // Mirrors the background image: the track's object URL is per-document, so the
-// bytes live here under their own key and a fresh URL is recreated on restore.
+// bytes live here and a fresh URL is recreated on restore. Unlike the video
+// (which is per-tab by design) the track is scoped to the project id — the same
+// id saved in the project snapshot — so two tabs editing different projects
+// can't overwrite each other's music, and the project that uploaded the track
+// is the one that can restore it across a reload.
 
-const MUSIC_KEY = "music-track";
+const musicKey = (projectId: string) => `music:${projectId}`;
 
-export async function saveMusicToStorage(track: Blob): Promise<boolean> {
+/**
+ * Persists a music track's bytes under the given project's key.
+ * @param projectId The project owning the track (used as the IndexedDB key).
+ * @param track The music track bytes to store.
+ * @returns True when persisted, false when storage is unavailable/full.
+ */
+export async function saveMusicToStorage(
+  projectId: string,
+  track: Blob
+): Promise<boolean> {
   if (typeof window === "undefined" || !("indexedDB" in window)) return false;
   try {
     await withStore("readwrite", (store) =>
-      store.put({ blob: track }, MUSIC_KEY)
+      store.put({ blob: track }, musicKey(projectId))
     );
     return true;
   } catch (err) {
@@ -234,12 +251,19 @@ export async function saveMusicToStorage(track: Blob): Promise<boolean> {
   }
 }
 
-export async function loadMusicFromStorage(): Promise<Blob | null> {
+/**
+ * Loads the music track stored for the given project, if any.
+ * @param projectId The project whose track should be loaded.
+ * @returns The track bytes, or null when none is stored / storage is unavailable.
+ */
+export async function loadMusicFromStorage(
+  projectId: string
+): Promise<Blob | null> {
   if (typeof window === "undefined" || !("indexedDB" in window)) return null;
   try {
     const track = await withStore<{ blob: Blob } | undefined>(
       "readonly",
-      (store) => store.get(MUSIC_KEY)
+      (store) => store.get(musicKey(projectId))
     );
     return track?.blob ?? null;
   } catch {
@@ -247,10 +271,16 @@ export async function loadMusicFromStorage(): Promise<Blob | null> {
   }
 }
 
-export async function clearMusicFromStorage(): Promise<boolean> {
+/**
+ * Removes the music track stored for the given project. Returns true when the
+ * track was removed, false when deletion failed. Cleared on "New Project" so a
+ * stale track from an earlier project can't resurrect.
+ * @param projectId The project whose track should be cleared.
+ */
+export async function clearMusicFromStorage(projectId: string): Promise<boolean> {
   if (typeof window === "undefined" || !("indexedDB" in window)) return false;
   try {
-    await withStore("readwrite", (store) => store.delete(MUSIC_KEY));
+    await withStore("readwrite", (store) => store.delete(musicKey(projectId)));
     return true;
   } catch (err) {
     console.warn("CaptionLab: could not remove music track from IndexedDB", err);

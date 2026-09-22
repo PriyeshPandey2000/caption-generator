@@ -20,23 +20,6 @@ function getVideoMetadata(url: string): Promise<{ duration: number; width: numbe
   });
 }
 
-// The audio filtergraph needs the source video's own track as the duck key, but
-// an uploaded clip can be genuinely silent. decodeAudioData resolves only when a
-// decodable audio stream exists, so it doubles as a clean presence probe.
-async function sourceHasAudio(url: string): Promise<boolean> {
-  let ctx: AudioContext | null = null;
-  try {
-    ctx = new AudioContext();
-    const buf = await (await fetch(url)).arrayBuffer();
-    await ctx.decodeAudioData(buf);
-    return true;
-  } catch {
-    return false;
-  } finally {
-    void ctx?.close();
-  }
-}
-
 export default function ExportPanel() {
   const transcription = useEditorStore((s) => s.project.transcription);
   const [isExporting, setIsExporting] = useState(false);
@@ -107,9 +90,15 @@ export default function ExportPanel() {
       const { fetchFile } = await import("@ffmpeg/util");
 
       const ffmpeg = new FFmpeg();
+      // Keep a rolling buffer of ffmpeg's stderr so the audio-presence probe
+      // below can read the input stream dump back (bound so a long encode's
+      // logs can't grow memory without limit).
+      const ffmpegLogs: string[] = [];
 
       ffmpeg.on("log", ({ message }) => {
         console.log("[ffmpeg]", message);
+        ffmpegLogs.push(message);
+        if (ffmpegLogs.length > 4000) ffmpegLogs.shift();
       });
 
       ffmpeg.on("progress", ({ progress }) => {
@@ -202,8 +191,18 @@ export default function ExportPanel() {
       }
 
       // Find out whether the source clip has its own audio: it's the duck key
-      // for the music bed, and the SFX mix currently keys off it too.
-      const voice = await sourceHasAudio(videoUrl);
+      // for the music bed, and the SFX mix currently keys off it too. Probe the
+      // very input.mp4 that feeds the filtergraph with ffmpeg itself — a
+      // decodeAudioData presence check can reject on container/codec combos
+      // where ffmpeg finds audio, silently dropping the source voice from the
+      // mix. Opening the file with a zero-length output prints the input
+      // stream dump ("Stream #N:_: Audio:") without decoding the clip.
+      ffmpegLogs.length = 0;
+      await ffmpeg.exec(["-i", "input.mp4", "-t", "0", "-f", "null", "-"]);
+      const voice = ffmpegLogs.some((m) =>
+        /stream\s*#\d+:\d+.*:\s*audio:/i.test(m)
+      );
+      ffmpegLogs.length = 0;
       const musIdx = 2 + sfxEvents.length;
       const musGain = musicOn ? music.volume : 0;
       const musChain = `[${musIdx}:a]aformat=channel_layouts=stereo,volume=${musGain.toFixed(3)}`;
@@ -245,16 +244,16 @@ export default function ExportPanel() {
           parts.join(";") +
           ";" +
           inputs +
-          `amix=inputs=${count}:duration=first:normalize=0[aout]`;
+          `amix=inputs=${count}:duration=longest:normalize=0,apad,atrim=duration=${meta.duration.toFixed(3)}[aout]`;
       } else if (musicOn) {
         if (duck) {
-          audioFilter = `${musChain}[music];[1:a]aformat=channel_layouts=stereo,asplit=2[vKey][vMix];[music][vKey]sidechaincompress=threshold=0.04:ratio=9:attack=25:release=350:makeup=1[duck];[vMix][duck]amix=inputs=2:duration=first:normalize=0[aout]`;
+          audioFilter = `${musChain}[music];[1:a]aformat=channel_layouts=stereo,asplit=2[vKey][vMix];[music][vKey]sidechaincompress=threshold=0.04:ratio=9:attack=25:release=350:makeup=1[duck];[vMix][duck]amix=inputs=2:duration=longest:normalize=0,apad,atrim=duration=${meta.duration.toFixed(3)}[aout]`;
         } else if (voice) {
           // Bed at constant gain mixed under the source voice (no ducking).
-          audioFilter = `${musChain}[music];[1:a]aformat=channel_layouts=stereo[vMix];[vMix][music]amix=inputs=2:duration=first:normalize=0[aout]`;
+          audioFilter = `${musChain}[music];[1:a]aformat=channel_layouts=stereo[vMix];[vMix][music]amix=inputs=2:duration=longest:normalize=0,apad,atrim=duration=${meta.duration.toFixed(3)}[aout]`;
         } else {
           // No source voice and no ducking: the bed plays straight at its gain.
-          audioFilter = `${musChain}[aout]`;
+          audioFilter = `${musChain},apad,atrim=duration=${meta.duration.toFixed(3)}[aout]`;
         }
       }
 
@@ -263,7 +262,7 @@ export default function ExportPanel() {
         "-i", "input.mp4",
         ...sfxInputs,
       ];
-      if (musicOn) args.push("-stream_loop", "-1", "-i", "music_input");
+      if (musicOn) args.push("-stream_loop", "-1", "-t", String(meta.duration), "-i", "music_input");
       args.push("-map", "0:v");
       if (audioFilter) {
         args.push("-filter_complex", audioFilter, "-map", "[aout]");
