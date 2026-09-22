@@ -213,3 +213,47 @@ export async function clearBackgroundImageFromStorage(): Promise<boolean> {
     return false;
   }
 }
+
+// --- Background-music persistence (IndexedDB) ---------------------
+//
+// Mirrors the background image: the track's object URL is per-document, so the
+// bytes live here under their own key and a fresh URL is recreated on restore.
+
+const MUSIC_KEY = "music-track";
+
+export async function saveMusicToStorage(track: Blob): Promise<boolean> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return false;
+  try {
+    await withStore("readwrite", (store) =>
+      store.put({ blob: track }, MUSIC_KEY)
+    );
+    return true;
+  } catch (err) {
+    console.warn("CaptionLab: could not persist music track to IndexedDB", err);
+    return false;
+  }
+}
+
+export async function loadMusicFromStorage(): Promise<Blob | null> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return null;
+  try {
+    const track = await withStore<{ blob: Blob } | undefined>(
+      "readonly",
+      (store) => store.get(MUSIC_KEY)
+    );
+    return track?.blob ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearMusicFromStorage(): Promise<boolean> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return false;
+  try {
+    await withStore("readwrite", (store) => store.delete(MUSIC_KEY));
+    return true;
+  } catch (err) {
+    console.warn("CaptionLab: could not remove music track from IndexedDB", err);
+    return false;
+  }
+}

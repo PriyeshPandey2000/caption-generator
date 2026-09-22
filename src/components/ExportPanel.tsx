@@ -20,6 +20,23 @@ function getVideoMetadata(url: string): Promise<{ duration: number; width: numbe
   });
 }
 
+// The audio filtergraph needs the source video's own track as the duck key, but
+// an uploaded clip can be genuinely silent. decodeAudioData resolves only when a
+// decodable audio stream exists, so it doubles as a clean presence probe.
+async function sourceHasAudio(url: string): Promise<boolean> {
+  let ctx: AudioContext | null = null;
+  try {
+    ctx = new AudioContext();
+    const buf = await (await fetch(url)).arrayBuffer();
+    await ctx.decodeAudioData(buf);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    void ctx?.close();
+  }
+}
+
 export default function ExportPanel() {
   const transcription = useEditorStore((s) => s.project.transcription);
   const [isExporting, setIsExporting] = useState(false);
@@ -74,6 +91,8 @@ export default function ExportPanel() {
 
       const sfxEvents = state.project.composition.sfxEvents ?? [];
       const sfxOn = !!state.project.globalStyle.sfx?.enabled && sfxEvents.length > 0;
+      const music = state.project.globalStyle.music;
+      const musicOn = !!music.url;
 
       setProgress("Checking video...");
       const meta = await getVideoMetadata(videoUrl);
@@ -174,27 +193,83 @@ export default function ExportPanel() {
       });
       await ffmpeg.writeFile(styled.stage, new Uint8Array(await styled.blob.arrayBuffer()));
 
-      // Compose the audio filtergraph: delay/scale/pitch each SFX into its
-      // video-time slot, then amix them over the source video's own audio
-      // (input 1). The styled render carries no audio — it's video-only.
+      // Background music goes in as the LAST ffmpeg input (after the SFX
+      // inputs at 2..N), looped to cover the whole clip. Its gain is applied
+      // here so preview and export stay in the same ballpark.
+      if (musicOn) {
+        setProgress("Loading music track...");
+        await ffmpeg.writeFile("music_input", await fetchFile(music.url as string));
+      }
+
+      // Find out whether the source clip has its own audio: it's the duck key
+      // for the music bed, and the SFX mix currently keys off it too.
+      const voice = await sourceHasAudio(videoUrl);
+      const musIdx = 2 + sfxEvents.length;
+      const musGain = musicOn ? music.volume : 0;
+      const musChain = `[${musIdx}:a]aformat=channel_layouts=stereo,volume=${musGain.toFixed(3)}`;
+      const duck = voice && musicOn && music.duckEnabled;
+
+      // Compose the audio filtergraph:
+      //  - each SFX is delayed/scaled/pitched into its video-time slot,
+      //  - the music bed is ducked under the source voice with a sidechain
+      //    compressor (attack/release tuned so dips are smooth, not gated),
+      //  - everything is amixed, ending no longer than the styled video.
+      // A silent source skips the voice entirely so [1:a] is never referenced.
       let audioFilter: string | null = null;
       if (sfxOn) {
-        const preMix = sfxChains.join(";");
+        const parts: string[] = [];
+        // Voice is consumed twice (duck key + final mix) only when ducking is
+        // on, so split it up front then — ffmpeg can't reuse one output label
+        // for two consumers.
+        if (voice) {
+          parts.push(
+            duck
+              ? "[1:a]aformat=channel_layouts=stereo,asplit=2[vKey][vMix]"
+              : "[1:a]aformat=channel_layouts=stereo[vMix]"
+          );
+        }
+        parts.push(...sfxChains);
+        if (musicOn) parts.push(`${musChain}[music]`);
+        if (duck) {
+          parts.push(
+            "[music][vKey]sidechaincompress=threshold=0.04:ratio=9:attack=25:release=350:makeup=1[duck]"
+          );
+        }
         const mixLabels = sfxChains.map((_, i) => `[fx${i + 2}]`).join("");
-        audioFilter = `[1:a]aformat=channel_layouts=stereo[main];${preMix};[main]${mixLabels}amix=inputs=${sfxEvents.length + 1}:duration=first:normalize=0[aout]`;
+        let inputs = voice ? "[vMix]" : "";
+        if (mixLabels) inputs += mixLabels;
+        if (duck) inputs += "[duck]";
+        else if (musicOn) inputs += "[music]";
+        const count = (voice ? 1 : 0) + sfxEvents.length + (musicOn ? 1 : 0);
+        audioFilter =
+          parts.join(";") +
+          ";" +
+          inputs +
+          `amix=inputs=${count}:duration=first:normalize=0[aout]`;
+      } else if (musicOn) {
+        if (duck) {
+          audioFilter = `${musChain}[music];[1:a]aformat=channel_layouts=stereo,asplit=2[vKey][vMix];[music][vKey]sidechaincompress=threshold=0.04:ratio=9:attack=25:release=350:makeup=1[duck];[vMix][duck]amix=inputs=2:duration=first:normalize=0[aout]`;
+        } else if (voice) {
+          // Bed at constant gain mixed under the source voice (no ducking).
+          audioFilter = `${musChain}[music];[1:a]aformat=channel_layouts=stereo[vMix];[vMix][music]amix=inputs=2:duration=first:normalize=0[aout]`;
+        } else {
+          // No source voice and no ducking: the bed plays straight at its gain.
+          audioFilter = `${musChain}[aout]`;
+        }
       }
 
       const args = [
         "-i", styled.stage,
         "-i", "input.mp4",
         ...sfxInputs,
-        "-map", "0:v",
       ];
+      if (musicOn) args.push("-stream_loop", "-1", "-i", "music_input");
+      args.push("-map", "0:v");
       if (audioFilter) {
         args.push("-filter_complex", audioFilter, "-map", "[aout]");
       } else {
-        // Keep the source's audio track when SFX are off (optional map so a
-        // silent source doesn't abort the export).
+        // Keep the source's audio track when neither SFX nor music use a filter
+        // (optional map so a silent source doesn't abort the export).
         args.push("-map", "1:a?");
       }
       args.push(
@@ -210,13 +285,20 @@ export default function ExportPanel() {
           : ["-c:v", "copy"]),
         "-c:a", "aac",
         "-b:a", "128k",
+        // Bound output to the styled video length (also stops a stream_loop'd
+        // music bed from running past the end of the clip).
+        "-shortest",
         "output.mp4"
       );
 
       setProgress(
-        sfxOn
-          ? "Mixing sounds & finalizing..."
-          : "Finalizing..."
+        sfxOn && musicOn
+          ? "Mixing music, sounds & finalizing..."
+          : sfxOn
+            ? "Mixing sounds & finalizing..."
+            : musicOn
+              ? "Mixing music & finalizing..."
+              : "Finalizing..."
       );
       await ffmpeg.exec(args);
 
