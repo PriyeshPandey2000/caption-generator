@@ -341,6 +341,21 @@ function PositionControls({
   );
 }
 
+const MOTION_PHASES = ["entrance", "active", "exit"] as const;
+type MotionPhase = (typeof MOTION_PHASES)[number];
+
+const PHASE_LABELS: Record<MotionPhase, string> = {
+  entrance: "Entrance",
+  active: "While Spoken",
+  exit: "Exit",
+};
+
+const PHASE_TYPE_OPTIONS: Record<MotionPhase, AnimationRecipe["type"][]> = {
+  entrance: ["none", "scale", "fade", "glow"],
+  active: ["none", "scale", "glow"],
+  exit: ["none", "fade", "scale"],
+};
+
 function MotionControls({
   motion,
   onChange,
@@ -349,82 +364,110 @@ function MotionControls({
   onChange: (m: Partial<WordMotion>) => void;
   isOverride?: boolean;
 }) {
-  const updateRecipe = (
-    key: "entrance" | "active" | "exit" | "emphasis",
-    recipe: Partial<AnimationRecipe>
-  ) => {
+  const updateRecipe = (key: MotionPhase, recipe: Partial<AnimationRecipe>) => {
     onChange({ [key]: { ...motion[key], ...recipe } } as Partial<WordMotion>);
   };
 
   return (
     <div className="space-y-4">
-      {(["entrance", "active", "exit", "emphasis"] as const).map((key) => (
-        <div key={key} className="bg-zinc-800 rounded-lg p-3">
-          <h5 className="text-xs font-medium text-zinc-300 mb-2 capitalize">
-            {key}
-          </h5>
-          <div className="space-y-2">
-            <div>
-              <label className="text-xs text-zinc-500 block mb-1">Type</label>
-              <select
-                value={motion[key]?.type || "none"}
-                onChange={(e) =>
-                  updateRecipe(key, {
-                    type: e.target.value as AnimationRecipe["type"],
-                  })
-                }
-                className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-800"
-              >
-                <option value="none">None</option>
-                <option value="scale">Scale</option>
-                <option value="fade">Fade</option>
-                <option value="slide">Slide</option>
-                <option value="glow">Glow</option>
-                <option value="pop">Pop</option>
-                <option value="bounce">Bounce</option>
-              </select>
-            </div>
-            {motion[key]?.type === "scale" && (
-              <>
-                <FieldGroup
-                  label="Scale From"
-                  value={motion[key]?.scaleFrom}
-                  onChange={(v) => updateRecipe(key, { scaleFrom: v as number })}
-                  min={0}
-                  max={300}
-                  unit="%"
-                />
-                <FieldGroup
-                  label="Scale To"
-                  value={motion[key]?.scaleTo}
-                  onChange={(v) => updateRecipe(key, { scaleTo: v as number })}
-                  min={0}
-                  max={300}
-                  unit="%"
-                />
-              </>
-            )}
-            <FieldGroup
-              label="Duration"
-              value={motion[key]?.duration}
-              onChange={(v) => updateRecipe(key, { duration: v as number })}
-              min={0}
-              max={2000}
-              unit="ms"
-            />
-            {motion[key]?.type === "glow" && (
+      {MOTION_PHASES.map((key) => {
+        const type = motion[key]?.type || "none";
+        return (
+          <div key={key} className="bg-zinc-800 rounded-lg p-3">
+            <h5 className="text-xs font-medium text-zinc-300 mb-2">
+              {PHASE_LABELS[key]}
+            </h5>
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-zinc-500 block mb-1">Type</label>
+                <select
+                  value={type}
+                  onChange={(e) =>
+                    updateRecipe(key, {
+                      type: e.target.value as AnimationRecipe["type"],
+                    })
+                  }
+                  className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-800"
+                >
+                  {PHASE_TYPE_OPTIONS[key].map((t) => (
+                    <option key={t} value={t}>
+                      {t === "none" ? "None" : t[0].toUpperCase() + t.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {type === "scale" && (
+                <>
+                  {key === "entrance" && (
+                    <FieldGroup
+                      label="Scale From"
+                      value={motion[key]?.scaleFrom}
+                      onChange={(v) => updateRecipe(key, { scaleFrom: v as number })}
+                      min={0}
+                      max={300}
+                      unit="%"
+                    />
+                  )}
+                  <FieldGroup
+                    label={key === "exit" ? "Shrink To" : "Scale To"}
+                    value={motion[key]?.scaleTo}
+                    onChange={(v) => updateRecipe(key, { scaleTo: v as number })}
+                    min={0}
+                    max={300}
+                    unit="%"
+                  />
+                </>
+              )}
+              {type === "fade" && (
+                <>
+                  <FieldGroup
+                    label="From"
+                    value={motion[key]?.from}
+                    onChange={(v) => updateRecipe(key, { from: v as number })}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                  />
+                  <FieldGroup
+                    label="To"
+                    value={motion[key]?.to}
+                    onChange={(v) => updateRecipe(key, { to: v as number })}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                  />
+                </>
+              )}
+              {type === "glow" && (
+                <>
+                  <FieldGroup
+                    label="Glow Radius"
+                    value={motion[key]?.glowRadius}
+                    onChange={(v) => updateRecipe(key, { glowRadius: v as number })}
+                    min={0}
+                    max={50}
+                    unit="px"
+                  />
+                  <FieldGroup
+                    label="Glow Color"
+                    type="color"
+                    value={motion[key]?.color || "#00FF88"}
+                    onChange={(v) => updateRecipe(key, { color: v as string })}
+                  />
+                </>
+              )}
               <FieldGroup
-                label="Glow Radius"
-                value={motion[key]?.glowRadius}
-                onChange={(v) => updateRecipe(key, { glowRadius: v as number })}
+                label="Duration"
+                value={motion[key]?.duration}
+                onChange={(v) => updateRecipe(key, { duration: v as number })}
                 min={0}
-                max={50}
-                unit="px"
+                max={2000}
+                unit="ms"
               />
-            )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

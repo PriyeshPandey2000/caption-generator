@@ -8,6 +8,7 @@ import {
 } from "./types";
 import { resolveWordStyle, MIN_CAPTION_Y, MAX_CAPTION_Y } from "./styles";
 import { sampleZoom } from "./zoom";
+import { easeProgress } from "./easing";
 
 // The width (CSS px) every caption-metric in the editor is designed against.
 // Live preview on a ~1280px-wide surface renders 1:1; the export scales by
@@ -111,11 +112,12 @@ export interface WordVisuals {
   shadow: { x: number; y: number; blur: number; color: string } | null;
 }
 
-// Exact port of WordSpan: entrance font-size animation (linear over
-// `entrance.duration || 180`ms from scaleFrom→scaleTo), active/emphasis pop
-// while spoken (font-size, not transform — so the word reflows and pushes
-// neighbors instead of overlapping), karaoke color only when the word has no
-// explicit color override, and the last-word-only exit fade.
+// Exact port of WordSpan — every shipped type renders identically on screen
+// and in the export: scale (font-size, not transform, so the word reflows and
+// pushes neighbors instead of overlapping and -webkit-text-stroke never gets
+// distorted), fade (opacity ramp), glow (text-shadow bloom for entrance and
+// while-spoken), exit scale-down, and the last-word-only exit fade. Progress
+// is eased per-recipe so a cubic-bezier overshoot "pop" matches the DOM.
 export function evaluateWordVisuals(
   word: Word,
   speakerStyles: Record<string, Partial<WordStyle>>,
@@ -141,45 +143,94 @@ export function evaluateWordVisuals(
   let shadow: { x: number; y: number; blur: number; color: string } | null = null;
   let opacity = style.opacity ?? 1;
 
+  const lerp = (a: number, b: number, p: number) => a + (b - a) * p;
+  const clampAmount = (v: number) => Math.min(1, Math.max(0, v));
+  const clampFont = (px: number) => Math.max(baseFontSize * 0.02, px);
+
   if (entrance && entrance.type === "scale") {
     const elapsed = (currentTime - word.start) * 1000;
     const duration = entrance.duration || 180;
-    const progress = Math.min(1, Math.max(0, elapsed / duration));
+    const progress = easeProgress(
+      Math.min(1, Math.max(0, elapsed / duration)),
+      entrance.easing
+    );
     const scale =
       (entrance.scaleFrom ?? 80) +
       ((entrance.scaleTo ?? 100) - (entrance.scaleFrom ?? 80)) * progress;
-    fontPx = (baseFontSize * scale) / 100;
+    fontPx = clampFont((baseFontSize * scale) / 100);
   }
 
-  if (emphasis && emphasis.type === "scale" && isSpokenNow) {
-    fontPx = (baseFontSize * (emphasis.scaleTo ?? 140)) / 100;
-    if (emphasis.color && !word.style?.color) color = emphasis.color;
-    if (emphasis.glowRadius) {
+  const entranceElapsed = (currentTime - word.start) * 1000;
+  const entranceActive =
+    entrance &&
+    currentTime >= word.start &&
+    entranceElapsed < (entrance.duration || 250);
+
+  if (entrance && entrance.type === "fade" && entranceActive) {
+    const progress = easeProgress(
+      Math.min(1, Math.max(0, entranceElapsed / (entrance.duration || 250))),
+      entrance.easing
+    );
+    opacity = clampAmount(
+      lerp(entrance.from ?? 0, entrance.to ?? (style.opacity ?? 1), progress)
+    );
+  } else if (entrance && entrance.type === "glow" && entranceActive) {
+    const progress = easeProgress(
+      Math.min(1, Math.max(0, entranceElapsed / (entrance.duration || 300))),
+      entrance.easing
+    );
+    opacity = clampAmount(
+      lerp(entrance.from ?? 0, entrance.to ?? (style.opacity ?? 1), progress)
+    );
+    shadow = {
+      x: 0,
+      y: 0,
+      blur: (entrance.glowRadius ?? 20) * sf * progress,
+      color: entrance.color || "#FFD700",
+    };
+  }
+
+  // Choreography-emphasis words still win over the global while-spoken recipe
+  // (camera punch + SFX key off word.animation.emphasis).
+  const isEmphasisWord = !!emphasis;
+  const spoken = emphasis ?? activeAnim;
+  if (isSpokenNow && spoken && spoken.type === "scale") {
+    fontPx = clampFont(
+      (baseFontSize * (spoken.scaleTo ?? (isEmphasisWord ? 140 : 125))) / 100
+    );
+    if (spoken.color && !word.style?.color) color = spoken.color;
+    if (spoken.glowRadius) {
       shadow = {
         x: 0,
         y: 0,
-        blur: emphasis.glowRadius * sf,
-        color: emphasis.color || "#FFD700",
+        blur: spoken.glowRadius * sf,
+        color: spoken.color || "#FFD700",
       };
     }
-  } else if (activeAnim && activeAnim.type === "scale" && isSpokenNow) {
-    fontPx = (baseFontSize * (activeAnim.scaleTo ?? 125)) / 100;
-    if (activeAnim.color && !word.style?.color) color = activeAnim.color;
-    if (activeAnim.glowRadius) {
-      shadow = {
-        x: 0,
-        y: 0,
-        blur: activeAnim.glowRadius * sf,
-        color: activeAnim.color || "#FFD700",
-      };
-    }
+  } else if (isSpokenNow && spoken && spoken.type === "glow") {
+    if (spoken.color && !word.style?.color) color = spoken.color;
+    shadow = {
+      x: 0,
+      y: 0,
+      blur: (spoken.glowRadius ?? 22) * sf,
+      color: spoken.color || "#FFD700",
+    };
   }
 
-  if (exit && hasEnded && isGroupLastWord) {
+  if (exit && exit.type !== "none" && hasEnded && isGroupLastWord) {
     const elapsedMs = (currentTime - word.end) * 1000;
     const exitDuration = exit.duration || EXIT_FADE_DEFAULT_DURATION_MS;
-    const progress = Math.min(1, Math.max(0, elapsedMs / exitDuration));
-    opacity = (exit.from ?? 1) + ((exit.to ?? 0) - (exit.from ?? 1)) * progress;
+    const progress = easeProgress(
+      Math.min(1, Math.max(0, elapsedMs / exitDuration)),
+      exit.easing
+    );
+    if (exit.type === "scale") {
+      const scale =
+        (exit.scaleFrom ?? 100) +
+        ((exit.scaleTo ?? 0) - (exit.scaleFrom ?? 100)) * progress;
+      fontPx = clampFont((baseFontSize * scale) / 100);
+    }
+    opacity = clampAmount(lerp(exit.from ?? 1, exit.to ?? 0, progress));
   }
 
   if (!shadow && style.shadowColor) {

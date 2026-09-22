@@ -126,8 +126,8 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
         letterSpacing: 1,
       },
       motion: {
-        entrance: { type: "pop", scaleFrom: 0, scaleTo: 120, duration: 250, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
-        active: { type: "bounce", scaleFrom: 100, scaleTo: 115, duration: 100 },
+        entrance: { type: "scale", scaleFrom: 40, scaleTo: 120, duration: 250, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
+        active: { type: "scale", scaleTo: 115, duration: 100, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
         exit: { type: "scale", scaleFrom: 100, scaleTo: 0, duration: 150 },
       },
     },

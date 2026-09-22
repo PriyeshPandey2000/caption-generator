@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useLayoutEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { resolveWordStyle, MIN_CAPTION_Y, MAX_CAPTION_Y } from "@/core/styles";
+import { easeProgress } from "@/core/easing";
 import { Word, WordStyle } from "@/core/types";
 import EditableWord from "@/components/EditableWord";
 
@@ -376,18 +377,51 @@ function WordSpan({
 
   const animStyle: React.CSSProperties = {};
 
-  // Entrance: scale 80→100 in 180ms after word appears. Animate font-size,
-  // not transform: scale — same reasoning as the active-word pop below:
-  // transform distorts -webkit-text-stroke into a jagged/artifacted outline
-  // on scaled glyphs, most visible on letters with diagonals or loops.
+  const lerp = (a: number, b: number, p: number) => a + (b - a) * p;
+  const clampAmount = (v: number) => Math.min(1, Math.max(0, v));
+  const clampFont = (px: number) => Math.max(baseFontSize * 0.02, px);
+
+  // Entrance: scale 80→100 in 180ms after word appears (eased per-recipe, so
+  // a cubic-bezier overshoot pops). Animate font-size, not transform: scale —
+  // same reasoning as the active-word pop below: transform distorts
+  // -webkit-text-stroke into a jagged/artifacted outline on scaled glyphs.
+  // Fade ramps opacity in; glow ramps a text-shadow bloom up while fading in.
   if (entrance && entrance.type === "scale") {
     const elapsed = (currentTime - word.start) * 1000;
     const duration = entrance.duration || 180;
-    const progress = Math.min(1, Math.max(0, elapsed / duration));
+    const progress = easeProgress(
+      Math.min(1, Math.max(0, elapsed / duration)),
+      entrance.easing
+    );
     const scale =
       (entrance.scaleFrom ?? 80) +
       ((entrance.scaleTo ?? 100) - (entrance.scaleFrom ?? 80)) * progress;
-    animStyle.fontSize = `${(baseFontSize * scale) / 100}px`;
+    animStyle.fontSize = `${clampFont((baseFontSize * scale) / 100)}px`;
+  }
+
+  const entranceElapsed = (currentTime - word.start) * 1000;
+  const entranceActive =
+    entrance &&
+    currentTime >= word.start &&
+    entranceElapsed < (entrance.duration || 250);
+
+  if (entrance && entrance.type === "fade" && entranceActive) {
+    const progress = easeProgress(
+      Math.min(1, Math.max(0, entranceElapsed / (entrance.duration || 250))),
+      entrance.easing
+    );
+    animStyle.opacity = clampAmount(
+      lerp(entrance.from ?? 0, entrance.to ?? (style.opacity ?? 1), progress)
+    );
+  } else if (entrance && entrance.type === "glow" && entranceActive) {
+    const progress = easeProgress(
+      Math.min(1, Math.max(0, entranceElapsed / (entrance.duration || 300))),
+      entrance.easing
+    );
+    animStyle.opacity = clampAmount(
+      lerp(entrance.from ?? 0, entrance.to ?? (style.opacity ?? 1), progress)
+    );
+    animStyle.textShadow = `0 0 ${(entrance.glowRadius ?? 20) * scaleFactor * progress}px ${entrance.color || "#FFD700"}`;
   }
 
   // Active-word or emphasis: pop while spoken. Animate real font-size (not
@@ -396,38 +430,48 @@ function WordSpan({
   // doesn't reserve the extra layout space the enlarged glyph needs. This
   // also avoids a stroke-rendering artifact where -webkit-text-stroke gets
   // stretched by the transform and looks jagged on diagonal letters (A/M/N).
-  if (emphasis && emphasis.type === "scale" && isSpokenNow) {
-    animStyle.fontSize = `${(baseFontSize * (emphasis.scaleTo ?? 140)) / 100}px`;
+  // Choreography-emphasis words still win over the global while-spoken recipe
+  // (camera punch + SFX key off word.animation.emphasis). A "glow" type
+  // blooms a text-shadow instead of scaling.
+  const isEmphasisWord = !!emphasis;
+  const spoken = emphasis ?? activeAnim;
+  if (isSpokenNow && spoken && spoken.type === "scale") {
+    animStyle.fontSize = `${clampFont((baseFontSize * (spoken.scaleTo ?? (isEmphasisWord ? 140 : 125))) / 100)}px`;
     // A user's explicit per-word color override always wins over the
     // karaoke-style animation color — otherwise a paused, selected word
     // (which is "spoken now" by definition) silently reverts to the
     // animation's color and the color picker looks broken.
-    if (emphasis.color && !word.style?.color) animStyle.color = emphasis.color;
-    if (emphasis.glowRadius) {
-      animStyle.textShadow = `0 0 ${emphasis.glowRadius * scaleFactor}px ${emphasis.color || "#FFD700"}`;
+    if (spoken.color && !word.style?.color) animStyle.color = spoken.color;
+    if (spoken.glowRadius) {
+      animStyle.textShadow = `0 0 ${spoken.glowRadius * scaleFactor}px ${spoken.color || "#FFD700"}`;
     }
-  } else if (activeAnim && activeAnim.type === "scale" && isSpokenNow) {
-    animStyle.fontSize = `${(baseFontSize * (activeAnim.scaleTo ?? 125)) / 100}px`;
-    if (activeAnim.color && !word.style?.color) animStyle.color = activeAnim.color;
-    if (activeAnim.glowRadius) {
-      animStyle.textShadow = `0 0 ${activeAnim.glowRadius * scaleFactor}px ${activeAnim.color || "#FFD700"}`;
-    }
+  } else if (isSpokenNow && spoken && spoken.type === "glow") {
+    if (spoken.color && !word.style?.color) animStyle.color = spoken.color;
+    animStyle.textShadow = `0 0 ${(spoken.glowRadius ?? 22) * scaleFactor}px ${spoken.color || "#FFD700"}`;
   }
 
-  // Exit: fade out after word ends. Pure function of currentTime (not
+  // Exit: fade out after word ends, optionally shrinking (exit "scale"). Pure
+  // function of currentTime (not
   // gated on isPlaying) so pausing or scrubbing mid-fade doesn't snap the
   // word back to fully visible. Only the group's last word fades — an
   // already-spoken word earlier in the same caption line must stay fully
   // visible while its still-being-spoken group-mates are showing, or the
   // line reads as missing a word (a "ghost"/ ghosted-out word) instead of
   // the whole line fading together when the group actually ends.
-  if (exit && hasEnded && isGroupLastWord) {
+  if (exit && exit.type !== "none" && hasEnded && isGroupLastWord) {
     const elapsedMs = (currentTime - word.end) * 1000;
     const exitDuration = exit.duration || EXIT_FADE_DEFAULT_DURATION_MS;
-    const progress = Math.min(1, Math.max(0, elapsedMs / exitDuration));
-    const fromOpacity = exit.from ?? 1;
-    const toOpacity = exit.to ?? 0;
-    animStyle.opacity = fromOpacity + (toOpacity - fromOpacity) * progress;
+    const progress = easeProgress(
+      Math.min(1, Math.max(0, elapsedMs / exitDuration)),
+      exit.easing
+    );
+    if (exit.type === "scale") {
+      const scale =
+        (exit.scaleFrom ?? 100) +
+        ((exit.scaleTo ?? 0) - (exit.scaleFrom ?? 100)) * progress;
+      animStyle.fontSize = `${clampFont((baseFontSize * scale) / 100)}px`;
+    }
+    animStyle.opacity = clampAmount(lerp(exit.from ?? 1, exit.to ?? 0, progress));
   }
 
   const updateWordText = useEditorStore((s) => s.updateWordText);

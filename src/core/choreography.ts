@@ -108,13 +108,18 @@ const styleBundles: Record<string, ChoreographyBundle> = {
       },
       motion: {
         entrance: {
-          type: "pop",
-          scaleFrom: 0,
+          type: "scale",
+          scaleFrom: 40,
           scaleTo: 120,
           duration: 250,
           easing: "cubic-bezier(0.34, 1.56, 0.64, 1)",
         },
-        active: { type: "bounce", scaleFrom: 100, scaleTo: 115, duration: 100 },
+        active: {
+          type: "scale",
+          scaleTo: 115,
+          duration: 100,
+          easing: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        },
         exit: { type: "scale", scaleFrom: 100, scaleTo: 0, duration: 150 },
       },
     },
@@ -182,16 +187,17 @@ const styleBundles: Record<string, ChoreographyBundle> = {
       },
       motion: {
         entrance: {
-          type: "bounce",
-          scaleFrom: 0,
+          type: "scale",
+          scaleFrom: 40,
           scaleTo: 120,
           duration: 300,
+          easing: "cubic-bezier(0.34, 1.56, 0.64, 1)",
         },
         active: {
-          type: "bounce",
-          scaleFrom: 100,
+          type: "scale",
           scaleTo: 122,
           duration: 120,
+          easing: "cubic-bezier(0.34, 1.56, 0.64, 1)",
           color: "#FFD700",
         },
         exit: { type: "fade", from: 1, to: 0, duration: 150 },
