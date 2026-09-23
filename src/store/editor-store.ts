@@ -20,7 +20,7 @@ import { defaultGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
 import { preprocessBackgroundImage } from "@/core/background-image";
 import { isSingleToken } from "@/core/dictionary";
-import { createDemoTranscription, DEMO_VIDEO_URL } from "@/core/demo";
+import { createDemoTranscription, createDemoDictionary, DEMO_VIDEO_URL } from "@/core/demo";
 import { ChoreographyBundle, highlightEmphasisWords } from "@/core/choreography";
 import {
   saveProjectToStorage,
@@ -686,6 +686,13 @@ export const useEditorStore = create<EditorState>((set) => ({
       project: {
         ...s.project,
         transcription: createDemoTranscription(),
+        // The sample captions ship a starter dictionary entry so the Dictionary
+        // panel demonstrates a real correction out of the box; an in-session
+        // project dictionary wins when it already has entries.
+        dictionary:
+          s.project.dictionary.length > 0
+            ? s.project.dictionary
+            : createDemoDictionary(),
         error: null,
         demoMode: true,
       },

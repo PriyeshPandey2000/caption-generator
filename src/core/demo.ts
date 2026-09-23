@@ -1,6 +1,15 @@
-import { Word, CaptionGroup, Segment, TranscriptionResult } from "./types";
+import { Word, CaptionGroup, Segment, TranscriptionResult, DictionaryEntry } from "./types";
 import { v4 as uuid } from "uuid";
 import { groupWordsIntoCaptions } from "./captions";
+
+// Starter dictionary bundled with the sample captions so the Dictionary panel
+// demonstrates a real correction out of the box — speech-to-text hears the demo
+// video's "Postiz" as "postage", and this maps it back (Whisper vocabulary hint
+// + guaranteed find-replace). Seeded only when the project has no entries yet,
+// so a user's own dictionary is never clobbered by loading the demo.
+export function createDemoDictionary(): DictionaryEntry[] {
+  return [{ id: uuid(), from: "postage", to: "Postiz" }];
+}
 
 // Real Whisper transcript of public/samples/demo-talking-head.mp4. The word
 // timings below mirror the even-split-per-segment fallback shape (used only
