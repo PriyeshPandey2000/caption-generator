@@ -400,28 +400,43 @@ function WordSpan({
   }
 
   const entranceElapsed = (currentTime - word.start) * 1000;
+  // Clamped progress across the ENTIRE entrance lifecycle — 0 before
+  // word.start, eases from `from` toward `to` during the window, and holds at
+  // `to` after the duration, so a custom from/to isn't discarded the moment
+  // entranceActive flips false (which used to snap the word back to its base
+  // opacity for fade/glow and drop a murk-configured `to` mid-lifecycle).
+  // A configured duration of 0 is a valid explicit choice and means an
+  // immediate transition right at word.start (treated as progress=1), not a
+  // silent fallback to the 250ms default.
+  const entranceDuration = entrance?.duration ?? 250;
+  const entranceProgress =
+    currentTime < word.start
+      ? 0
+      : entranceDuration <= 0
+        ? 1
+        : Math.min(1, Math.max(0, entranceElapsed / entranceDuration));
   const entranceActive =
-    entrance &&
+    !!entrance &&
     currentTime >= word.start &&
-    entranceElapsed < (entrance.duration || 250);
+    entranceDuration > 0 &&
+    entranceProgress < 1;
 
-  if (entrance && entrance.type === "fade" && entranceActive) {
-    const progress = easeProgress(
-      Math.min(1, Math.max(0, entranceElapsed / (entrance.duration || 250))),
-      entrance.easing
-    );
+  if (entrance && entrance.type === "fade") {
+    const progress = easeProgress(entranceProgress, entrance.easing);
     animStyle.opacity = clampAmount(
       lerp(entrance.from ?? 0, entrance.to ?? (style.opacity ?? 1), progress)
     );
-  } else if (entrance && entrance.type === "glow" && entranceActive) {
-    const progress = easeProgress(
-      Math.min(1, Math.max(0, entranceElapsed / (entrance.duration || 300))),
-      entrance.easing
-    );
+  } else if (entrance && entrance.type === "glow") {
+    const progress = easeProgress(entranceProgress, entrance.easing);
     animStyle.opacity = clampAmount(
       lerp(entrance.from ?? 0, entrance.to ?? (style.opacity ?? 1), progress)
     );
-    animStyle.textShadow = `0 0 ${(entrance.glowRadius ?? 20) * scaleFactor * progress}px ${entrance.color || "#FFD700"}`;
+    // The glow text-shadow only blooms while the entrance window is active so
+    // it doesn't linger at full radius after the word has settled in — the
+    // fade/glow opacity above still eases across the whole lifecycle.
+    if (entranceActive) {
+      animStyle.textShadow = `0 0 ${(entrance.glowRadius ?? 20) * scaleFactor * progress}px ${entrance.color || "#FFD700"}`;
+    }
   }
 
   // Active-word or emphasis: pop while spoken. Animate real font-size (not
@@ -436,18 +451,41 @@ function WordSpan({
   const isEmphasisWord = !!emphasis;
   const spoken = emphasis ?? activeAnim;
   if (isSpokenNow && spoken && spoken.type === "scale") {
-    animStyle.fontSize = `${clampFont((baseFontSize * (spoken.scaleTo ?? (isEmphasisWord ? 140 : 125))) / 100)}px`;
+    // While-spoken scale/glow animate over spoken.duration — clamped across
+    // the whole spoken interval (a configured duration of 0 or undefined means
+    // an immediate pop, matching the old behavior) and ramped with
+    // spoken.easing. Scale starts from spoken.scaleFrom and eases up to
+    // spoken.scaleTo; glow blooms from zero up to spoken.glowRadius. This
+    // mirrors scene-renderer so the in-editor preview and the export renderer
+    // stay identical.
+    const elapsed = (currentTime - word.start) * 1000;
+    const duration = spoken.duration ?? 0;
+    const progress =
+      duration <= 0
+        ? 1
+        : Math.min(1, Math.max(0, elapsed / duration));
+    const eased = easeProgress(progress, spoken.easing);
+    const scaleFrom = spoken.scaleFrom ?? 100;
+    const scaleTo = spoken.scaleTo ?? (isEmphasisWord ? 140 : 125);
+    animStyle.fontSize = `${clampFont((baseFontSize * (scaleFrom + (scaleTo - scaleFrom) * eased)) / 100)}px`;
     // A user's explicit per-word color override always wins over the
     // karaoke-style animation color — otherwise a paused, selected word
     // (which is "spoken now" by definition) silently reverts to the
     // animation's color and the color picker looks broken.
     if (spoken.color && !word.style?.color) animStyle.color = spoken.color;
     if (spoken.glowRadius) {
-      animStyle.textShadow = `0 0 ${spoken.glowRadius * scaleFactor}px ${spoken.color || "#FFD700"}`;
+      animStyle.textShadow = `0 0 ${(spoken.glowRadius ?? 22) * scaleFactor * eased}px ${spoken.color || "#FFD700"}`;
     }
   } else if (isSpokenNow && spoken && spoken.type === "glow") {
+    const elapsed = (currentTime - word.start) * 1000;
+    const duration = spoken.duration ?? 0;
+    const progress =
+      duration <= 0
+        ? 1
+        : Math.min(1, Math.max(0, elapsed / duration));
+    const eased = easeProgress(progress, spoken.easing);
     if (spoken.color && !word.style?.color) animStyle.color = spoken.color;
-    animStyle.textShadow = `0 0 ${(spoken.glowRadius ?? 22) * scaleFactor}px ${spoken.color || "#FFD700"}`;
+    animStyle.textShadow = `0 0 ${(spoken.glowRadius ?? 22) * scaleFactor * eased}px ${spoken.color || "#FFD700"}`;
   }
 
   // Exit: fade out after word ends, optionally shrinking (exit "scale"). Pure

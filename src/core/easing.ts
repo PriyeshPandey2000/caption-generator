@@ -38,7 +38,7 @@ const NAMED_EASES: Record<string, EaseFn> = {
   "ease-in-out": cubicBezier(0.42, 0, 0.58, 1),
 };
 
-const CUBIC_RE = /^cubic-bezier\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/;
+const CUBIC_RE = /^cubic-bezier\(\s*([-+]?\d*\.?\d+)\s*,\s*([-+]?\d*\.?\d+)\s*,\s*([-+]?\d*\.?\d+)\s*,\s*([-+]?\d*\.?\d+)\s*\)$/;
 
 export function parseEasing(easing: string | undefined): EaseFn {
   if (!easing) return NAMED_EASES.linear;
@@ -46,12 +46,15 @@ export function parseEasing(easing: string | undefined): EaseFn {
   if (named) return named;
   const m = CUBIC_RE.exec(easing);
   if (m) {
-    return cubicBezier(
-      parseFloat(m[1]),
-      parseFloat(m[2]),
-      parseFloat(m[3]),
-      parseFloat(m[4])
-    );
+    const x1 = parseFloat(m[1]);
+    const x2 = parseFloat(m[3]);
+    // CSS requires the two x control points to stay in [0,1]; y1/y2 may
+    // legitimately overshoot below 0 / above 1 for anticipation and overshoot
+    // curves. If x is out of range the cubic is malformed, so fall back to
+    // linear rather than silently rendering a broken curve.
+    if (x1 >= 0 && x1 <= 1 && x2 >= 0 && x2 <= 1) {
+      return cubicBezier(x1, parseFloat(m[2]), x2, parseFloat(m[4]));
+    }
   }
   return NAMED_EASES.linear;
 }

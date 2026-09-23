@@ -161,33 +161,48 @@ export function evaluateWordVisuals(
   }
 
   const entranceElapsed = (currentTime - word.start) * 1000;
+  // Clamped progress across the ENTIRE entrance lifecycle — 0 before
+  // word.start, eases from `from` toward `to` during the window, and holds at
+  // `to` after the duration, so a custom from/to isn't discarded the moment
+  // entranceActive flips false (which used to snap the word back to its base
+  // opacity for fade/glow and drop a murk-configured `to` mid-lifecycle).
+  // A configured duration of 0 is a valid explicit choice and means an
+  // immediate transition right at word.start (treated as progress=1), not a
+  // silent fallback to the 250ms default.
+  const entranceDuration = entrance?.duration ?? 250;
+  const entranceProgress =
+    currentTime < word.start
+      ? 0
+      : entranceDuration <= 0
+        ? 1
+        : Math.min(1, Math.max(0, entranceElapsed / entranceDuration));
   const entranceActive =
-    entrance &&
+    !!entrance &&
     currentTime >= word.start &&
-    entranceElapsed < (entrance.duration || 250);
+    entranceDuration > 0 &&
+    entranceProgress < 1;
 
-  if (entrance && entrance.type === "fade" && entranceActive) {
-    const progress = easeProgress(
-      Math.min(1, Math.max(0, entranceElapsed / (entrance.duration || 250))),
-      entrance.easing
-    );
+  if (entrance && entrance.type === "fade") {
+    const progress = easeProgress(entranceProgress, entrance.easing);
     opacity = clampAmount(
       lerp(entrance.from ?? 0, entrance.to ?? (style.opacity ?? 1), progress)
     );
-  } else if (entrance && entrance.type === "glow" && entranceActive) {
-    const progress = easeProgress(
-      Math.min(1, Math.max(0, entranceElapsed / (entrance.duration || 300))),
-      entrance.easing
-    );
+  } else if (entrance && entrance.type === "glow") {
+    const progress = easeProgress(entranceProgress, entrance.easing);
     opacity = clampAmount(
       lerp(entrance.from ?? 0, entrance.to ?? (style.opacity ?? 1), progress)
     );
-    shadow = {
-      x: 0,
-      y: 0,
-      blur: (entrance.glowRadius ?? 20) * sf * progress,
-      color: entrance.color || "#FFD700",
-    };
+    // The fade/glow opacity eases across the whole lifecycle (above), but the
+    // glow text-shadow only blooms while the entrance window is active so it
+    // doesn't linger at full radius after the word has settled in.
+    if (entranceActive) {
+      shadow = {
+        x: 0,
+        y: 0,
+        blur: (entrance.glowRadius ?? 20) * sf * progress,
+        color: entrance.color || "#FFD700",
+      };
+    }
   }
 
   // Choreography-emphasis words still win over the global while-spoken recipe
@@ -195,24 +210,46 @@ export function evaluateWordVisuals(
   const isEmphasisWord = !!emphasis;
   const spoken = emphasis ?? activeAnim;
   if (isSpokenNow && spoken && spoken.type === "scale") {
+    // While-spoken scale/glow animate over spoken.duration (clamped across the
+    // whole spoken interval; a configured duration of 0 or undefined means an
+    // immediate pop, matching the old behavior) using spoken.easing. Scale
+    // starts from spoken.scaleFrom and ramps up to the target; glow blooms
+    // from zero up to spoken.glowRadius. This mirrors the entrance path and the
+    // preview renderer so export and preview are identical.
+    const spokenElapsed = (currentTime - word.start) * 1000;
+    const spokenDuration = spoken.duration ?? 0;
+    const spokenProgress =
+      spokenDuration <= 0
+        ? 1
+        : Math.min(1, Math.max(0, spokenElapsed / spokenDuration));
+    const progress = easeProgress(spokenProgress, spoken.easing);
+    const scaleFrom = spoken.scaleFrom ?? 100;
+    const scaleTo = spoken.scaleTo ?? (isEmphasisWord ? 140 : 125);
     fontPx = clampFont(
-      (baseFontSize * (spoken.scaleTo ?? (isEmphasisWord ? 140 : 125))) / 100
+      (baseFontSize * (scaleFrom + (scaleTo - scaleFrom) * progress)) / 100
     );
     if (spoken.color && !word.style?.color) color = spoken.color;
     if (spoken.glowRadius) {
       shadow = {
         x: 0,
         y: 0,
-        blur: spoken.glowRadius * sf,
+        blur: spoken.glowRadius * sf * progress,
         color: spoken.color || "#FFD700",
       };
     }
   } else if (isSpokenNow && spoken && spoken.type === "glow") {
+    const spokenElapsed = (currentTime - word.start) * 1000;
+    const spokenDuration = spoken.duration ?? 0;
+    const spokenProgress =
+      spokenDuration <= 0
+        ? 1
+        : Math.min(1, Math.max(0, spokenElapsed / spokenDuration));
+    const progress = easeProgress(spokenProgress, spoken.easing);
     if (spoken.color && !word.style?.color) color = spoken.color;
     shadow = {
       x: 0,
       y: 0,
-      blur: (spoken.glowRadius ?? 22) * sf,
+      blur: (spoken.glowRadius ?? 22) * sf * progress,
       color: spoken.color || "#FFD700",
     };
   }
