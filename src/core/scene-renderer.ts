@@ -223,7 +223,10 @@ export function evaluateWordVisuals(
         ? 1
         : Math.min(1, Math.max(0, spokenElapsed / spokenDuration));
     const progress = easeProgress(spokenProgress, spoken.easing);
-    const scaleFrom = spoken.scaleFrom ?? 100;
+    // When spoken.scaleFrom is absent, start the spoken pop from the current
+    // entrance-computed font size (fontPx) instead of 100, so an entrance like
+    // Punchy's 40→120 doesn't get suppressed mid-bloom by a hard 100 start.
+    const scaleFrom = spoken.scaleFrom ?? (fontPx / baseFontSize) * 100;
     const scaleTo = spoken.scaleTo ?? (isEmphasisWord ? 140 : 125);
     fontPx = clampFont(
       (baseFontSize * (scaleFrom + (scaleTo - scaleFrom) * progress)) / 100

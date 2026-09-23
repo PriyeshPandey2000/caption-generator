@@ -381,6 +381,12 @@ function WordSpan({
   const clampAmount = (v: number) => Math.min(1, Math.max(0, v));
   const clampFont = (px: number) => Math.max(baseFontSize * 0.02, px);
 
+  // Entrance-computed font size (null when no entrance scale ran) — the spoken
+  // pop below falls back to this as its start so an entrance like Punchy's
+  // 40→120 isn't suppressed mid-bloom by a hard 100. Mirrors fontPx in
+  // scene-renderer.
+  let entranceFontPx: number | null = null;
+
   // Entrance: scale 80→100 in 180ms after word appears (eased per-recipe, so
   // a cubic-bezier overshoot pops). Animate font-size, not transform: scale —
   // same reasoning as the active-word pop below: transform distorts
@@ -396,7 +402,8 @@ function WordSpan({
     const scale =
       (entrance.scaleFrom ?? 80) +
       ((entrance.scaleTo ?? 100) - (entrance.scaleFrom ?? 80)) * progress;
-    animStyle.fontSize = `${clampFont((baseFontSize * scale) / 100)}px`;
+    entranceFontPx = clampFont((baseFontSize * scale) / 100);
+    animStyle.fontSize = `${entranceFontPx}px`;
   }
 
   const entranceElapsed = (currentTime - word.start) * 1000;
@@ -465,7 +472,11 @@ function WordSpan({
         ? 1
         : Math.min(1, Math.max(0, elapsed / duration));
     const eased = easeProgress(progress, spoken.easing);
-    const scaleFrom = spoken.scaleFrom ?? 100;
+    // Start from the entrance-computed size when spoken.scaleFrom is absent,
+    // so the spoken pop preserves (and continues from) the entrance scale.
+    const scaleFrom =
+      spoken.scaleFrom ??
+      (entranceFontPx ? (entranceFontPx / baseFontSize) * 100 : 100);
     const scaleTo = spoken.scaleTo ?? (isEmphasisWord ? 140 : 125);
     animStyle.fontSize = `${clampFont((baseFontSize * (scaleFrom + (scaleTo - scaleFrom) * eased)) / 100)}px`;
     // A user's explicit per-word color override always wins over the
