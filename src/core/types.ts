@@ -28,7 +28,7 @@ export interface WordMotion {
 }
 
 export interface AnimationRecipe {
-  type: "scale" | "fade" | "slide" | "glow" | "pop" | "bounce" | "none";
+  type: "scale" | "fade" | "glow" | "none";
   from?: number;
   to?: number;
   duration?: number;
