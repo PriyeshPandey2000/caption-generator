@@ -2,7 +2,7 @@
 
 import { useEditorStore } from "@/store/editor-store";
 import { Word, WordStyle, WordMotion, AnimationRecipe, SfxName, SfxEvent } from "@/core/types";
-import { MIN_CAPTION_Y, MAX_CAPTION_Y, resolveWordStyle, resolveWordMotion } from "@/core/styles";
+import { MIN_CAPTION_Y, MAX_CAPTION_Y, resolveWordStyle, resolveWordMotion, FONT_FAMILY_OPTIONS } from "@/core/styles";
 
 export default function Inspector() {
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
@@ -272,6 +272,25 @@ function StyleControls({
 }) {
   return (
     <div className="space-y-3">
+      <div>
+        <label className="text-xs text-zinc-500 block mb-1">Font Family</label>
+        <select
+          value={style.fontFamily ?? ""}
+          onChange={(e) => onChange({ fontFamily: e.target.value })}
+          className="w-full bg-zinc-800 text-white text-xs rounded px-2 py-1.5 border border-zinc-800"
+        >
+          {!FONT_FAMILY_OPTIONS.some((f) => f.value === style.fontFamily) && (
+            <option value={style.fontFamily ?? ""}>
+              {style.fontFamily?.split(",")[0] ?? "Custom"}
+            </option>
+          )}
+          {FONT_FAMILY_OPTIONS.map((f) => (
+            <option key={f.label} value={f.value}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+      </div>
       <FieldGroup label="Font Size" value={style.fontSize} onChange={(v) => onChange({ fontSize: v as number })} min={12} max={200} unit="px" />
       <FieldGroup label="Color" type="color" value={style.color || "#FFFFFF"} onChange={(v) => onChange({ color: v as string })} />
       <FieldGroup label="Stroke Color" type="color" value={style.strokeColor || "#000000"} onChange={(v) => onChange({ strokeColor: v as string })} />

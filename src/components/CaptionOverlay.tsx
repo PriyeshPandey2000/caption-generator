@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useLayoutEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
-import { resolveWordStyle, MIN_CAPTION_Y, MAX_CAPTION_Y } from "@/core/styles";
+import { resolveWordStyle, MIN_CAPTION_Y, MAX_CAPTION_Y, FONT_FAMILY_OPTIONS } from "@/core/styles";
 import { easeProgress } from "@/core/easing";
 import { Word, WordStyle } from "@/core/types";
 import EditableWord from "@/components/EditableWord";
@@ -561,14 +561,7 @@ function WordSpan({
   );
 }
 
-const TOOLBAR_FONTS = [
-  { label: "Anton", value: "var(--font-anton), Impact, 'Arial Black', sans-serif" },
-  { label: "Inter", value: "Inter, system-ui, sans-serif" },
-  { label: "Impact", value: "Impact, sans-serif" },
-  { label: "Georgia", value: "Georgia, serif" },
-  { label: "Monospace", value: "monospace" },
-  { label: "Comic Sans", value: "'Comic Sans MS', 'Chalkboard SE', sans-serif" },
-];
+const TOOLBAR_FONTS = FONT_FAMILY_OPTIONS;
 
 function FloatingToolbar({
   style,

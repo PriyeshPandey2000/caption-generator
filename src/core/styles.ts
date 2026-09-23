@@ -5,6 +5,17 @@ import { Word, WordStyle, WordMotion, WordTransform, GlobalStyle, VideoEffects, 
 export const MIN_CAPTION_Y = 5;
 export const MAX_CAPTION_Y = 82;
 
+// The pickable font families. Shared between the preview's floating toolbar
+// and the Inspector's Global Style panel so the two can never drift apart.
+export const FONT_FAMILY_OPTIONS = [
+  { label: "Anton", value: "var(--font-anton), Impact, 'Arial Black', sans-serif" },
+  { label: "Inter", value: "Inter, system-ui, sans-serif" },
+  { label: "Impact", value: "Impact, sans-serif" },
+  { label: "Georgia", value: "Georgia, serif" },
+  { label: "Monospace", value: "monospace" },
+  { label: "Comic Sans", value: "'Comic Sans MS', 'Chalkboard SE', sans-serif" },
+];
+
 // Default caption look — modeled on Alex Hormozi's short-form style: bold
 // Anton, all-caps, thick black stroke (no background box), tight
 // near-zero letter-spacing, sitting in the lower third. Emphasis is done by
