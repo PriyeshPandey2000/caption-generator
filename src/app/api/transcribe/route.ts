@@ -4,6 +4,7 @@ import { readFile, writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
+import { get, del } from "@vercel/blob";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_TIMEOUT_MS = 120_000;
@@ -152,19 +153,41 @@ function errResponse(message: string, status = 400): NextResponse {
 }
 
 export async function POST(request: NextRequest) {
+  // Set once the video's blob URL is known, so the finally block can always
+  // clean it up — on any return path below, and even if something throws.
+  let blobUrl: string | null = null;
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    const userKey = formData.get("apiKey") as string | null;
+    // The client uploads the video straight to Vercel Blob (see upload() in
+    // Editor.tsx) and sends us only this small JSON body. Vercel's serverless
+    // functions hard-cap the request body around 4.5MB regardless of config,
+    // so a multipart video upload here (the old contract) would get rejected
+    // by the platform itself before this handler ever ran, for any video
+    // bigger than a few seconds of footage.
+    const body = await request.json();
+    blobUrl = (body.blobUrl as string | null) ?? null;
+    const userKey = (body.apiKey as string | null) ?? null;
     const apiKey = userKey || process.env.GROQ_API_KEY;
-    const prompt = (formData.get("prompt") as string | null) || undefined;
+    const prompt = (body.prompt as string | null) || undefined;
+    const filename = (body.filename as string | null) || "upload.mp4";
 
-    if (!file) {
-      return errResponse("No file provided", 400);
+    if (!blobUrl) {
+      return errResponse("No video uploaded", 400);
     }
     if (!apiKey) {
       return errResponse("Groq API key required", 400);
     }
+
+    const blobResult = await get(blobUrl, { access: "private" });
+    if (!blobResult || blobResult.statusCode !== 200) {
+      return errResponse(
+        "Uploaded video could not be found (it may have expired) — please try uploading again.",
+        404
+      );
+    }
+    const bytes = await new Response(blobResult.stream).arrayBuffer();
+    const file = new File([bytes], filename, {
+      type: blobResult.blob.contentType || "video/mp4",
+    });
 
     const direct = await tryGroqDirect(file, apiKey, prompt);
 
@@ -216,5 +239,16 @@ export async function POST(request: NextRequest) {
       );
     }
     return errResponse(`Transcription failed: ${error}`, 500);
+  } finally {
+    // The blob only exists to get the video past the platform's request-body
+    // limit; the video itself already lives in the user's browser. Delete it
+    // here (awaited, not fire-and-forget) since a serverless invocation can
+    // be frozen the instant the response is sent, which would drop an
+    // unawaited cleanup call before it ever reaches the network.
+    if (blobUrl) {
+      await del(blobUrl).catch((err) =>
+        console.error("Failed to delete transcription blob:", err)
+      );
+    }
   }
 }

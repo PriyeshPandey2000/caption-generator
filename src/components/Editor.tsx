@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { upload } from "@vercel/blob/client";
 import {
   Group,
   Panel as ResizablePanel,
@@ -53,10 +54,12 @@ function getVideoDuration(file: File): Promise<number> {
   });
 }
 
-// Vercel's serverless function invocations hard-cap the request body around
-// 4.5MB regardless of plan or route config — a bigger upload is rejected by
-// the platform itself, before src/app/api/transcribe/route.ts ever runs.
-const MAX_UPLOAD_BYTES = 4.5 * 1024 * 1024;
+// The video is uploaded straight to Vercel Blob (bypassing the serverless
+// function body limit entirely — see the comment in handleFileSelect), so
+// this is a sanity cap against pathological uploads/runaway storage costs,
+// not a real ceiling real videos should hit. Must match onBeforeGenerateToken
+// in src/app/api/blob-upload/route.ts, which enforces the real limit.
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 export default function Editor() {
   const [apiKey, setApiKey] = useState<string>(
@@ -323,27 +326,37 @@ export default function Editor() {
       setError(null);
 
       try {
-        // Vercel enforces a hard ~4.5MB request body limit on serverless
-        // function invocations that can't be raised via config. A video over
-        // that size gets rejected by the platform before our route handler
-        // ever runs, as a plain-text "Request Entity Too Large" response —
-        // catch it here with a clear message instead of only surfacing it as
-        // a confusing `.json()` parse failure below.
         if (file.size > MAX_UPLOAD_BYTES) {
           throw new Error(
-            `Video is too large to upload (${(file.size / (1024 * 1024)).toFixed(1)}MB, limit ~${(MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(1)}MB). Trim or compress the clip and try again.`
+            `Video is too large to upload (${(file.size / (1024 * 1024)).toFixed(1)}MB, limit ~${(MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(0)}MB). Trim or compress the clip and try again.`
           );
         }
 
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("apiKey", apiKey);
+        // Uploaded straight to Vercel Blob from the browser, not through our
+        // own API route: Vercel's serverless functions hard-cap the request
+        // body around 4.5MB regardless of plan or route config, so any video
+        // longer than a few seconds would get rejected by the platform itself
+        // — as a plain-text "Request Entity Too Large" response, before our
+        // route handler ever ran — if it were sent as a multipart body here.
+        // handleUploadUrl authorizes this upload server-side per-request; see
+        // src/app/api/blob-upload/route.ts.
+        const blob = await upload(`transcribe/${file.name}`, file, {
+          access: "private",
+          handleUploadUrl: "/api/blob-upload",
+          multipart: true,
+        });
+
         const dictionaryPrompt = buildWhisperPrompt(dictionary);
-        if (dictionaryPrompt) formData.append("prompt", dictionaryPrompt);
 
         const res = await fetch("/api/transcribe", {
           method: "POST",
-          body: formData,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            blobUrl: blob.url,
+            apiKey,
+            prompt: dictionaryPrompt || undefined,
+            filename: file.name,
+          }),
         });
 
         if (!res.ok) {
