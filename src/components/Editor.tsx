@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { upload } from "@vercel/blob/client";
 import {
   Group,
   Panel as ResizablePanel,
@@ -52,6 +53,13 @@ function getVideoDuration(file: File): Promise<number> {
     video.src = url;
   });
 }
+
+// The video is uploaded straight to Vercel Blob (bypassing the serverless
+// function body limit entirely — see the comment in handleFileSelect), so
+// this is a sanity cap against pathological uploads/runaway storage costs,
+// not a real ceiling real videos should hit. Must match onBeforeGenerateToken
+// in src/app/api/blob-upload/route.ts, which enforces the real limit.
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 export default function Editor() {
   const [apiKey, setApiKey] = useState<string>(
@@ -318,20 +326,52 @@ export default function Editor() {
       setError(null);
 
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("apiKey", apiKey);
+        if (file.size > MAX_UPLOAD_BYTES) {
+          throw new Error(
+            `Video is too large to upload (${(file.size / (1024 * 1024)).toFixed(1)}MB, limit ~${(MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(0)}MB). Trim or compress the clip and try again.`
+          );
+        }
+
+        // Uploaded straight to Vercel Blob from the browser, not through our
+        // own API route: Vercel's serverless functions hard-cap the request
+        // body around 4.5MB regardless of plan or route config, so any video
+        // longer than a few seconds would get rejected by the platform itself
+        // — as a plain-text "Request Entity Too Large" response, before our
+        // route handler ever ran — if it were sent as a multipart body here.
+        // handleUploadUrl authorizes this upload server-side per-request; see
+        // src/app/api/blob-upload/route.ts.
+        const blob = await upload(`transcribe/${file.name}`, file, {
+          access: "private",
+          handleUploadUrl: "/api/blob-upload",
+          multipart: true,
+        });
+
         const dictionaryPrompt = buildWhisperPrompt(dictionary);
-        if (dictionaryPrompt) formData.append("prompt", dictionaryPrompt);
 
         const res = await fetch("/api/transcribe", {
           method: "POST",
-          body: formData,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            blobUrl: blob.url,
+            apiKey,
+            prompt: dictionaryPrompt || undefined,
+            filename: file.name,
+          }),
         });
 
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "Transcription failed");
+          // The error body isn't always JSON: a platform-level rejection
+          // (413 body-too-large, a 502/504 gateway error, ...) can return
+          // plain text or an HTML page before our route handler runs at all.
+          const text = await res.text().catch(() => "");
+          let message = `Transcription failed (${res.status})`;
+          try {
+            const parsed = JSON.parse(text);
+            message = parsed.error || message;
+          } catch {
+            if (text) message = `${message}: ${text.slice(0, 200)}`;
+          }
+          throw new Error(message);
         }
 
         const data = await res.json();
