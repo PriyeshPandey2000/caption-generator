@@ -53,6 +53,11 @@ function getVideoDuration(file: File): Promise<number> {
   });
 }
 
+// Vercel's serverless function invocations hard-cap the request body around
+// 4.5MB regardless of plan or route config — a bigger upload is rejected by
+// the platform itself, before src/app/api/transcribe/route.ts ever runs.
+const MAX_UPLOAD_BYTES = 4.5 * 1024 * 1024;
+
 export default function Editor() {
   const [apiKey, setApiKey] = useState<string>(
     typeof window !== "undefined"
@@ -318,6 +323,18 @@ export default function Editor() {
       setError(null);
 
       try {
+        // Vercel enforces a hard ~4.5MB request body limit on serverless
+        // function invocations that can't be raised via config. A video over
+        // that size gets rejected by the platform before our route handler
+        // ever runs, as a plain-text "Request Entity Too Large" response —
+        // catch it here with a clear message instead of only surfacing it as
+        // a confusing `.json()` parse failure below.
+        if (file.size > MAX_UPLOAD_BYTES) {
+          throw new Error(
+            `Video is too large to upload (${(file.size / (1024 * 1024)).toFixed(1)}MB, limit ~${(MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(1)}MB). Trim or compress the clip and try again.`
+          );
+        }
+
         const formData = new FormData();
         formData.append("file", file);
         formData.append("apiKey", apiKey);
@@ -330,8 +347,18 @@ export default function Editor() {
         });
 
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "Transcription failed");
+          // The error body isn't always JSON: a platform-level rejection
+          // (413 body-too-large, a 502/504 gateway error, ...) can return
+          // plain text or an HTML page before our route handler runs at all.
+          const text = await res.text().catch(() => "");
+          let message = `Transcription failed (${res.status})`;
+          try {
+            const parsed = JSON.parse(text);
+            message = parsed.error || message;
+          } catch {
+            if (text) message = `${message}: ${text.slice(0, 200)}`;
+          }
+          throw new Error(message);
         }
 
         const data = await res.json();
