@@ -273,7 +273,14 @@ export default function CaptionOverlay({
                 position: "absolute",
                 left: 0,
                 top: `${yPct}%`,
-                transform: `translate(0, -50%) translate(${offsetX}px, ${offsetY}px)`,
+                // No horizontal offset here on purpose. A full-width bar is
+                // edge-to-edge by definition, so there is no room to move it
+                // sideways; offsetX only opened a gap on one side and clipped
+                // the other. The export draws this bar in absolute canvas
+                // space at x=0 for the same reason (scene-renderer.ts), and it
+                // ignores groupLayout.x for the bar while still moving the text
+                // inside it. Vertical offset is kept — both paths honour it.
+                transform: `translate(0, -50%) translate(0, ${offsetY}px)`,
                 width: "100%",
                 maxWidth: "100%",
               }
