@@ -548,63 +548,77 @@ function StyleControls({
       <FieldGroup label="Font Weight" value={style.fontWeight} onChange={(v) => onChange({ fontWeight: v as number })} min={100} max={900} step={100} />
       <FieldGroup label="Letter Spacing" value={style.letterSpacing} onChange={(v) => onChange({ letterSpacing: v as number })} min={0} max={20} unit="px" />
       <ShadowControl style={style} onChange={onChange} />
-      <FieldGroup
-        label="Background Color"
-        type="color"
-        value={style.backgroundColor && style.backgroundColor !== "transparent" ? style.backgroundColor : "#000000"}
-        onChange={(v) => onChange({ backgroundColor: v as string })}
-      />
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-zinc-500">Background enabled</span>
-        <button
-          type="button"
-          aria-pressed={!!style.backgroundColor && style.backgroundColor !== "transparent"}
-          onClick={() =>
-            onChange({
-              backgroundColor:
-                style.backgroundColor && style.backgroundColor !== "transparent"
-                  ? "transparent"
-                  : "#000000",
-            })
-          }
-          className={`
-            relative w-10 h-5 rounded-full transition-colors
-            ${style.backgroundColor && style.backgroundColor !== "transparent" ? "bg-[#00FF66]" : "bg-zinc-700"}
-          `}
-        >
-          <span
+      <div className="pt-1 border-t border-zinc-800">
+        {/* "Background" is also the name of the separate video-background tab
+            (blur/color/image behind the footage) — labeling this "Caption
+            Background Box" keeps the two from reading as the same setting. */}
+        <p className="text-xs font-medium text-zinc-400 mt-2 mb-0.5">
+          Caption Background Box
+        </p>
+        <p className="text-[10px] text-zinc-600 mb-2">
+          A solid box behind the caption text. Not the video&apos;s Background tab.
+        </p>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-zinc-500">Show background box</span>
+          <button
+            type="button"
+            aria-pressed={!!style.backgroundColor && style.backgroundColor !== "transparent"}
+            onClick={() =>
+              onChange({
+                backgroundColor:
+                  style.backgroundColor && style.backgroundColor !== "transparent"
+                    ? "transparent"
+                    : "#000000",
+              })
+            }
             className={`
-              absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
-              ${style.backgroundColor && style.backgroundColor !== "transparent" ? "translate-x-5" : "translate-x-0.5"}
+              relative w-10 h-5 rounded-full transition-colors
+              ${style.backgroundColor && style.backgroundColor !== "transparent" ? "bg-[#00FF66]" : "bg-zinc-700"}
             `}
-          />
-        </button>
-      </div>
-      {style.backgroundColor && style.backgroundColor !== "transparent" && (
-        <>
-          <FieldGroup label="Background Padding" value={style.backgroundPadding} onChange={(v) => onChange({ backgroundPadding: v as number })} min={0} max={40} unit="px" />
-          <FieldGroup label="Background Radius" value={style.backgroundBorderRadius} onChange={(v) => onChange({ backgroundBorderRadius: v as number })} min={0} max={40} unit="px" />
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-zinc-500">Full-width bar</span>
-            <button
-              type="button"
-              aria-pressed={!!style.backgroundFullWidth}
-              onClick={() => onChange({ backgroundFullWidth: !style.backgroundFullWidth })}
+          >
+            <span
               className={`
-                relative w-10 h-5 rounded-full transition-colors
-                ${style.backgroundFullWidth ? "bg-[#00FF66]" : "bg-zinc-700"}
+                absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
+                ${style.backgroundColor && style.backgroundColor !== "transparent" ? "translate-x-5" : "translate-x-0.5"}
               `}
-            >
-              <span
+            />
+          </button>
+        </div>
+        {/* Only shown once the box is on: the color swatch used to sit above
+            this toggle and stayed live even while disabled, so touching it to
+            preview a color silently turned the box back on as a side effect. */}
+        {style.backgroundColor && style.backgroundColor !== "transparent" && (
+          <div className="mt-3 space-y-3">
+            <FieldGroup
+              label="Box Color"
+              type="color"
+              value={style.backgroundColor}
+              onChange={(v) => onChange({ backgroundColor: v as string })}
+            />
+            <FieldGroup label="Box Padding" value={style.backgroundPadding} onChange={(v) => onChange({ backgroundPadding: v as number })} min={0} max={40} unit="px" />
+            <FieldGroup label="Box Corner Radius" value={style.backgroundBorderRadius} onChange={(v) => onChange({ backgroundBorderRadius: v as number })} min={0} max={40} unit="px" />
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-500">Full-width bar</span>
+              <button
+                type="button"
+                aria-pressed={!!style.backgroundFullWidth}
+                onClick={() => onChange({ backgroundFullWidth: !style.backgroundFullWidth })}
                 className={`
-                  absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
-                  ${style.backgroundFullWidth ? "translate-x-5" : "translate-x-0.5"}
+                  relative w-10 h-5 rounded-full transition-colors
+                  ${style.backgroundFullWidth ? "bg-[#00FF66]" : "bg-zinc-700"}
                 `}
-              />
-            </button>
+              >
+                <span
+                  className={`
+                    absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
+                    ${style.backgroundFullWidth ? "translate-x-5" : "translate-x-0.5"}
+                  `}
+                />
+              </button>
+            </div>
           </div>
-        </>
-      )}
+        )}
+      </div>
 
       <div>
         <label className="text-xs text-zinc-500 block mb-1">Text Transform</label>

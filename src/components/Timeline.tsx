@@ -192,16 +192,7 @@ export default function Timeline() {
     const ctx = canvas.getContext("2d");
     const frames: string[] = [];
 
-    const captureAt = (i: number) => {
-      if (cancelled) return;
-      if (i >= FILMSTRIP_FRAMES) {
-        setFilmstrip({ url: videoUrl, frames });
-        return;
-      }
-      video.currentTime = (duration * (i + 0.5)) / FILMSTRIP_FRAMES;
-    };
-
-    const onSeeked = () => {
+    const draw = () => {
       if (cancelled || !ctx) return;
       if (frames.length === 0) {
         // Fixed landscape-ish capture size regardless of source aspect: a
@@ -231,12 +222,45 @@ export default function Timeline() {
       captureAt(frames.length);
     };
 
-    video.addEventListener("seeked", onSeeked);
+    // requestVideoFrameCallback only resolves on the *next* frame the
+    // decoder presents, so it must be armed before the seek that will
+    // produce that frame — arming it afterwards (e.g. from a 'seeked'
+    // handler, as this used to) waits for a frame update that never comes on
+    // a paused video, silently capturing zero thumbnails. Armed correctly,
+    // it also fixes what arming-after was meant to fix: 'seeked' fires once
+    // the seek *operation* completes but the frame can still be mid-decode,
+    // which produced torn, streaked captures (worse the longer the video,
+    // since each seek takes longer to settle) when drawn immediately.
+    // Fall back to 'seeked' + a couple of animation frames of delay where
+    // requestVideoFrameCallback is unsupported.
+    const requestFrame = (
+      video as HTMLVideoElement & {
+        requestVideoFrameCallback?: (cb: () => void) => number;
+      }
+    ).requestVideoFrameCallback?.bind(video);
+
+    const captureAt = (i: number) => {
+      if (cancelled) return;
+      if (i >= FILMSTRIP_FRAMES) {
+        setFilmstrip({ url: videoUrl, frames });
+        return;
+      }
+      if (requestFrame) {
+        requestFrame(draw);
+      } else {
+        video.addEventListener(
+          "seeked",
+          () => requestAnimationFrame(() => requestAnimationFrame(draw)),
+          { once: true }
+        );
+      }
+      video.currentTime = (duration * (i + 0.5)) / FILMSTRIP_FRAMES;
+    };
+
     video.addEventListener("loadedmetadata", () => captureAt(0));
 
     return () => {
       cancelled = true;
-      video.removeEventListener("seeked", onSeeked);
       video.src = "";
     };
   }, [videoUrl, duration]);
