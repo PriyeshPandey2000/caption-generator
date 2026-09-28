@@ -16,9 +16,15 @@ To transcribe your own clip, add a free [Groq](https://console.groq.com) API key
 - **Word is the atomic unit** — every word is individually styled, animated, and movable.
 - **Direct manipulation** — drag any caption to reposition, drag the corner handle to scale it into "big type."
 - **Animation recipes** — entrance, active-word, exit, and emphasis (punchline) motion, all editable.
+- **Shadow looks** — tight/soft/hard/none, identical in preview and export.
+- **Background box** — per-word/group plate or a full-width subtitle bar; color, padding, and radius all editable.
 - **Inheritance model** — Global → Speaker → Phrase → Word; every override resettable.
 - **AI choreography** — type "make it MrBeast" or tap a suggestion chip; style, motion, and emphasis words apply instantly.
-- **Presets & templates** — Clean, MrBeast, Neon, Editorial, Punchy, Minimal.
+- **Presets** — Hormozi, Clean, MrBeast, Neon, Editorial, Punchy, Classic, Outline, Boxed, Minimal — plus save your own.
+- **Camera zoom on emphasis** — auto punch-in on stressed words, adjustable intensity.
+- **Sound effects** — auto-placed on emphasis words; density, volume, and pack configurable.
+- **Background music** — upload a track, set volume, duck under speech.
+- **Background removal/replace** — blur, solid color, or image behind the subject.
 - **Export** — burn-in MP4 (ffmpeg.wasm), plus SRT/VTT subtitles.
 
 ## Stack
