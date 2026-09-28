@@ -4,14 +4,36 @@ import { useRef, useCallback, useMemo, useState, useEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { sliderFillStyle } from "./rangeFill";
 
-const FILMSTRIP_FRAMES = 14;
+// Filmstrip density. The frame count is derived from the video's duration
+// rather than fixed, so scene changes are actually sampled: a fixed 14 put
+// one thumbnail every ~46s on a 10-minute clip, so no cut ever landed on a
+// thumbnail and the strip read as unrelated, smudgy stills.
+const FILMSTRIP_TARGET_SEC = 4;
+const MIN_FILMSTRIP_FRAMES = 8;
+const MAX_FILMSTRIP_FRAMES = 48;
+// The lane is 64 CSS px tall; capture at 2x so the strip stays sharp on HiDPI.
+const FILMSTRIP_HEIGHT = 64;
+const FILMSTRIP_QUALITY = 0.82;
+// Backstop so a seek can never stall the strip: `awaitFrame` also settles on
+// 'seeked', but a browser that delivers neither signal must still produce a
+// frame rather than leaving the timeline permanently blank.
+const FILMSTRIP_FRAME_WAIT_MS = 1200;
+// Throttle for progressive publishing, so a long capture fills the strip in
+// without re-rendering the timeline on every single frame.
+const FILMSTRIP_PUBLISH_MS = 200;
 
 export default function Timeline() {
   const containerRef = useRef<HTMLDivElement>(null);
   const sfxTrackRef = useRef<HTMLDivElement>(null);
   const transcription = useEditorStore((s) => s.project.transcription);
   const videoUrl = useEditorStore((s) => s.videoUrl);
-  const [filmstrip, setFilmstrip] = useState<{ url: string; frames: string[] } | null>(null);
+  const [filmstrip, setFilmstrip] = useState<{
+    url: string;
+    frames: string[];
+    // Frame count this strip was built for, so cells can be sized to it while
+    // the strip is still filling in.
+    count: number;
+  } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
@@ -178,9 +200,10 @@ export default function Timeline() {
 
   const showSfxLane = sfxEnabled && sfxEvents.length > 0;
   const thumbnails = filmstrip?.url === videoUrl ? filmstrip.frames : [];
+  const filmstripCount = filmstrip?.count ?? MIN_FILMSTRIP_FRAMES;
 
   useEffect(() => {
-    if (!videoUrl || !duration) return;
+    if (!videoUrl) return;
 
     let cancelled = false;
     const video = document.createElement("video");
@@ -192,78 +215,118 @@ export default function Timeline() {
     const ctx = canvas.getContext("2d");
     const frames: string[] = [];
 
+    // Sampled against the *video's* own duration, not the transcription's.
+    // They can disagree (a restored transcript alongside a different video, or
+    // a transcript covering only part of the clip), and when they do the strip
+    // drew thumbnails from the wrong span of footage yet spread them across
+    // the full width — the worst kind of wrong, because it looks plausible.
+    // `videoDuration` is filled in on loadedmetadata below.
+    let videoDuration = 0;
+    let frameCount = MIN_FILMSTRIP_FRAMES;
+
+    // Publish as we go instead of only at the end. A long clip needs many
+    // seeks, and holding every frame back until the last one left the timeline
+    // blank for the whole build.
+    let lastPublish = 0;
+    const publish = (force: boolean) => {
+      const now = Date.now();
+      if (!force && now - lastPublish < FILMSTRIP_PUBLISH_MS) return;
+      lastPublish = now;
+      setFilmstrip({ url: videoUrl, frames: [...frames], count: frameCount });
+    };
+
     const draw = () => {
-      if (cancelled || !ctx) return;
-      if (frames.length === 0) {
-        // Fixed landscape-ish capture size regardless of source aspect: a
-        // portrait/vertical source (the common case for short-form video)
-        // made the old width formula (videoWidth/videoHeight * 64) collapse
-        // to a few dozen pixels, which then had to be blown back up via
-        // background-size: cover to fill each much-wider filmstrip cell —
-        // that upscaled a tiny, already-compressed JPEG into a smeared mess.
-        canvas.height = 64;
-        canvas.width = 114;
+      if (cancelled || !ctx || frames.length >= frameCount) return;
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        // Capture the *whole* frame at the source's own aspect ratio, at 2x the
+        // lane height. Forcing a landscape canvas center-cropped a portrait
+        // source down to a thin horizontal band (32% of frame height for 9:16)
+        // that could slice the subject out — and `bg-cover` then cropped that
+        // band a second time to the cell aspect, compounding the smear.
+        const aspect = video.videoWidth / video.videoHeight;
+        canvas.height = FILMSTRIP_HEIGHT * 2;
+        canvas.width = Math.max(
+          48,
+          Math.min(400, Math.round(canvas.height * aspect))
+        );
+        ctx.drawImage(
+          video,
+          0,
+          0,
+          video.videoWidth,
+          video.videoHeight,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
       }
-      // Crop like CSS object-fit: cover instead of squishing the whole frame
-      // into the canvas, so a portrait source shows a normal center crop
-      // instead of a squeezed, distorted one.
-      const canvasAspect = canvas.width / canvas.height;
-      const videoAspect = video.videoWidth / video.videoHeight || canvasAspect;
-      let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
-      if (videoAspect > canvasAspect) {
-        sw = video.videoHeight * canvasAspect;
-        sx = (video.videoWidth - sw) / 2;
-      } else {
-        sh = video.videoWidth / canvasAspect;
-        sy = (video.videoHeight - sh) / 2;
-      }
-      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-      frames.push(canvas.toDataURL("image/jpeg", 0.75));
+      frames.push(canvas.toDataURL("image/jpeg", FILMSTRIP_QUALITY));
+      publish(false);
       captureAt(frames.length);
     };
 
-    // requestVideoFrameCallback only resolves on the *next* frame the
-    // decoder presents, so it must be armed before the seek that will
-    // produce that frame — arming it afterwards (e.g. from a 'seeked'
-    // handler, as this used to) waits for a frame update that never comes on
-    // a paused video, silently capturing zero thumbnails. Armed correctly,
-    // it also fixes what arming-after was meant to fix: 'seeked' fires once
-    // the seek *operation* completes but the frame can still be mid-decode,
-    // which produced torn, streaked captures (worse the longer the video,
-    // since each seek takes longer to settle) when drawn immediately.
-    // Fall back to 'seeked' + a couple of animation frames of delay where
-    // requestVideoFrameCallback is unsupported.
-    const requestFrame = (
-      video as HTMLVideoElement & {
-        requestVideoFrameCallback?: (cb: () => void) => number;
-      }
-    ).requestVideoFrameCallback?.bind(video);
+    // Wait for the frame at the new position to be readable, then draw.
+    //
+    // Two things this must not do:
+    //
+    // 1. Gate on requestVideoFrameCallback. It only resolves when the compositor
+    //    *presents* a frame, which never happens for a video that is paused and
+    //    merely seeked — measured on a 640s file: readyState 4 (data fully
+    //    loaded) with the callback never invoked. The capture loop is
+    //    sequential, so that stranded it on frame 0 and the filmstrip came out
+    //    empty. 'seeked' does fire and is the primary signal here; the timeout
+    //    is the backstop for a browser that delivers neither.
+    // 2. Wait on requestAnimationFrame. rAF is throttled to near-zero in a
+    //    background tab, so an rAF-based wait stalls for any user who switches
+    //    tabs while the strip is building. A macrotask yields just as well and
+    //    still lets the decoder flush the seeked frame.
+    const awaitFrame = (onReady: () => void) => {
+      let settled = false;
+      const finish = () => {
+        if (settled || cancelled) return;
+        settled = true;
+        clearTimeout(timer);
+        video.removeEventListener("seeked", finish);
+        setTimeout(onReady, 0);
+      };
+      const timer = setTimeout(finish, FILMSTRIP_FRAME_WAIT_MS);
+      // Registered before the seek that triggers it, or the event is missed.
+      video.addEventListener("seeked", finish);
+    };
 
     const captureAt = (i: number) => {
       if (cancelled) return;
-      if (i >= FILMSTRIP_FRAMES) {
-        setFilmstrip({ url: videoUrl, frames });
+      if (i >= frameCount) {
+        publish(true);
         return;
       }
-      if (requestFrame) {
-        requestFrame(draw);
-      } else {
-        video.addEventListener(
-          "seeked",
-          () => requestAnimationFrame(() => requestAnimationFrame(draw)),
-          { once: true }
-        );
-      }
-      video.currentTime = (duration * (i + 0.5)) / FILMSTRIP_FRAMES;
+      // Yield between frames so a long capture never saturates the main
+      // thread and locks up scrubbing, typing, or playback.
+      setTimeout(() => {
+        if (cancelled) return;
+        awaitFrame(draw);
+        video.currentTime = (videoDuration * (i + 0.5)) / frameCount;
+      }, 0);
     };
 
-    video.addEventListener("loadedmetadata", () => captureAt(0));
+    video.addEventListener("loadedmetadata", () => {
+      const d = video.duration;
+      if (!Number.isFinite(d) || d <= 0) return;
+      videoDuration = d;
+      // One thumbnail per FILMSTRIP_TARGET_SEC of runtime, bounded at both ends.
+      frameCount = Math.max(
+        MIN_FILMSTRIP_FRAMES,
+        Math.min(MAX_FILMSTRIP_FRAMES, Math.round(d / FILMSTRIP_TARGET_SEC))
+      );
+      captureAt(0);
+    });
 
     return () => {
       cancelled = true;
       video.src = "";
     };
-  }, [videoUrl, duration]);
+  }, [videoUrl]);
 
   return (
     <div className="w-full bg-zinc-800 border-t border-zinc-800 px-4 py-3">
@@ -391,8 +454,14 @@ export default function Timeline() {
             {thumbnails.map((src, i) => (
               <div
                 key={i}
-                className="flex-1 bg-cover bg-center"
-                style={{ backgroundImage: `url(${src})` }}
+                className="bg-cover bg-center shrink-0 h-full"
+                style={{
+                  backgroundImage: `url(${src})`,
+                  // Fixed per-cell width against the target count, so a
+                  // partially-built strip fills in left to right instead of
+                  // rescaling every thumbnail on each publish.
+                  width: `${100 / filmstripCount}%`,
+                }}
               />
             ))}
           </div>
