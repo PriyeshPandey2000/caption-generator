@@ -325,7 +325,17 @@ export default function CaptionOverlay({
             window.addEventListener("mouseup", up);
           }}
           style={{
-            transform: `scale(${layout.scale})`,
+            // The bar is pinned edge-to-edge on the wrapper above, but the text
+            // still has to follow the horizontal drag — the export does exactly
+            // that (bar drawn at x=0, text frame translated by centerX, which
+            // includes groupLayout.x). Translating the row rather than the
+            // wrapper keeps both halves of that behaviour: order matters here,
+            // since CSS applies transforms right-to-left, so the row is scaled
+            // about its own centre and only then shifted, matching
+            // ctx.translate(centerX, centerY) followed by ctx.scale.
+            transform: fullWidthBar
+              ? `translateX(${offsetX}px) scale(${layout.scale})`
+              : `scale(${layout.scale})`,
             ...(fullWidthBar ? { width: "100%" } : {}),
             ...(hasBg
               ? {

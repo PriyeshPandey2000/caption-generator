@@ -147,15 +147,21 @@ export default function VideoPreview() {
     const video = videoRef.current;
     if (!video || !videoUrl) return;
 
-    const FRAME_STEP = 1 / 30;
     let last = -1;
 
     // Media drives the clock while playing. While paused the clock is driven by
     // scrubbing via `timeupdate`, so sampling must not fight the user.
+    //
+    // The timer period is the only rate limiter — there is no frame-step
+    // threshold here on purpose. A `1/30` gate was a knife-edge against a
+    // 1000/30 ms timer (the two are equal at 1x, so timer jitter dropped roughly
+    // every other tick) and it halved the update rate again below 1x speed,
+    // because each tick then advanced the media by less than a frame. Skipping
+    // only genuinely unchanged media time gives a steady 30Hz at any rate.
     const sample = () => {
       if (video.paused || video.ended) return;
       const t = video.currentTime;
-      if (Math.abs(t - last) < FRAME_STEP) return;
+      if (t === last) return;
       last = t;
       setCurrentTime(t);
     };
