@@ -61,6 +61,39 @@ function getVideoDuration(file: File): Promise<number> {
 // in src/app/api/blob-upload/route.ts, which enforces the real limit.
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
+// Groq's Whisper API caps request size well below what Blob upload lets
+// through (25MB on the free tier, 100MB on dev) — a raw video easily exceeds
+// that. Whisper resamples everything to 16kHz mono internally regardless, so
+// extracting audio at that spec client-side (same ffmpeg.wasm already used
+// for export) loses no accuracy while shrinking a typical video 10-20x,
+// comfortably under Groq's limit for any realistic clip length. If this
+// fails for any reason (no audio track, wasm load failure, ...), the caller
+// falls back to uploading the original video unchanged.
+async function extractAudioForTranscription(file: File): Promise<File> {
+  const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+  const { fetchFile } = await import("@ffmpeg/util");
+
+  const ffmpeg = new FFmpeg();
+  try {
+    await ffmpeg.load();
+    const inExt = file.name.split(".").pop()?.toLowerCase() || "mp4";
+    const inputName = `input.${inExt}`;
+    await ffmpeg.writeFile(inputName, await fetchFile(file));
+    await ffmpeg.exec([
+      "-i", inputName,
+      "-vn",
+      "-ar", "16000",
+      "-ac", "1",
+      "-b:a", "64k",
+      "audio.mp3",
+    ]);
+    const data = (await ffmpeg.readFile("audio.mp3")) as Uint8Array;
+    return new File([new Uint8Array(data)], "audio.mp3", { type: "audio/mpeg" });
+  } finally {
+    ffmpeg.terminate();
+  }
+}
+
 export default function Editor() {
   const [apiKey, setApiKey] = useState<string>(
     typeof window !== "undefined"
@@ -99,6 +132,9 @@ export default function Editor() {
   const demoMode = useEditorStore((s) => s.project.demoMode);
   const dictionary = useEditorStore((s) => s.project.dictionary);
   const isTranscribing = useEditorStore((s) => s.project.isTranscribing);
+  const [transcribeStatus, setTranscribeStatus] = useState(
+    "Transcribing your video…"
+  );
   const error = useEditorStore((s) => s.project.error);
   const setTranscription = useEditorStore((s) => s.setTranscription);
   const setIsTranscribing = useEditorStore((s) => s.setIsTranscribing);
@@ -323,6 +359,7 @@ export default function Editor() {
       setVideoFile(file);
 
       setIsTranscribing(true);
+      setTranscribeStatus("Transcribing your video…");
       setError(null);
 
       try {
@@ -332,6 +369,19 @@ export default function Editor() {
           );
         }
 
+        // Groq's Whisper API caps requests at 25-100MB depending on plan,
+        // well below what a raw video can reach. Extract audio-only first so
+        // the upload is small enough regardless of video length; falls back
+        // to the original file if extraction fails for any reason.
+        let uploadFile: File = file;
+        try {
+          setTranscribeStatus("Preparing audio…");
+          uploadFile = await extractAudioForTranscription(file);
+        } catch (err) {
+          console.error("Audio extraction failed, uploading original video:", err);
+        }
+        setTranscribeStatus("Transcribing your video…");
+
         // Uploaded straight to Vercel Blob from the browser, not through our
         // own API route: Vercel's serverless functions hard-cap the request
         // body around 4.5MB regardless of plan or route config, so any video
@@ -340,7 +390,7 @@ export default function Editor() {
         // route handler ever ran — if it were sent as a multipart body here.
         // handleUploadUrl authorizes this upload server-side per-request; see
         // src/app/api/blob-upload/route.ts.
-        const blob = await upload(`transcribe/${file.name}`, file, {
+        const blob = await upload(`transcribe/${uploadFile.name}`, uploadFile, {
           access: "private",
           handleUploadUrl: "/api/blob-upload",
           multipart: true,
@@ -355,7 +405,7 @@ export default function Editor() {
             blobUrl: blob.url,
             apiKey,
             prompt: dictionaryPrompt || undefined,
-            filename: file.name,
+            filename: uploadFile.name,
           }),
         });
 
@@ -570,7 +620,7 @@ export default function Editor() {
                   >
                     <div className="flex flex-col items-center gap-3">
                       <div aria-hidden="true" className="w-8 h-8 border-2 border-[#00FF66] border-t-transparent rounded-full animate-spin" />
-                      <p className="text-sm text-zinc-200">Transcribing your video…</p>
+                      <p className="text-sm text-zinc-200">{transcribeStatus}</p>
                       <p className="text-xs text-zinc-500">
                         This can take a moment for longer clips
                       </p>
@@ -654,7 +704,7 @@ export default function Editor() {
                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-8 h-8 border-2 border-[#00FF66] border-t-transparent rounded-full animate-spin" />
-                      <p className="text-sm text-zinc-300">Transcribing...</p>
+                      <p className="text-sm text-zinc-300">{transcribeStatus}</p>
                     </div>
                   </div>
                 )}
