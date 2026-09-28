@@ -127,6 +127,49 @@ export default function VideoPreview() {
     }
   }, [currentTime, videoUrl]);
 
+  // Drive the store clock from the media at the rate the export samples (30fps)
+  // rather than relying on `timeupdate`, which browsers fire only ~4x/sec —
+  // measured 3.72/s on this page. That quantization updated every caption
+  // animation in visible ~270ms steps and let anything shorter than one step be
+  // skipped entirely, so the preview did not represent the render.
+  //
+  // A timer, not requestAnimationFrame, is the driver. rAF only fires when the
+  // compositor is producing frames, and it is tied to the display refresh rate,
+  // so neither the cadence nor the availability can be relied on: this page
+  // reports visibilityState "visible" while rAF fires 0 times/sec. A 1000/30
+  // timer measured exactly 30 fires/sec under the same conditions, which is both
+  // the export's rate and independent of frame production.
+  //
+  // `onTimeUpdate` still carries the clock while the tab is backgrounded (timers
+  // are clamped to 1Hz there) and for scrubbing and post-seek sync, which this
+  // deliberately leaves alone while paused.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl) return;
+
+    let last = -1;
+
+    // Media drives the clock while playing. While paused the clock is driven by
+    // scrubbing via `timeupdate`, so sampling must not fight the user.
+    //
+    // The timer period is the only rate limiter — there is no frame-step
+    // threshold here on purpose. A `1/30` gate was a knife-edge against a
+    // 1000/30 ms timer (the two are equal at 1x, so timer jitter dropped roughly
+    // every other tick) and it halved the update rate again below 1x speed,
+    // because each tick then advanced the media by less than a frame. Skipping
+    // only genuinely unchanged media time gives a steady 30Hz at any rate.
+    const sample = () => {
+      if (video.paused || video.ended) return;
+      const t = video.currentTime;
+      if (t === last) return;
+      last = t;
+      setCurrentTime(t);
+    };
+
+    const interval = window.setInterval(sample, 1000 / 30);
+    return () => window.clearInterval(interval);
+  }, [videoUrl, setCurrentTime]);
+
   const handleVideoClick = useCallback(() => {
     // A reframe drag ends with a click on the same element; don't also toggle
     // playback when the user was just grabbing the frame.

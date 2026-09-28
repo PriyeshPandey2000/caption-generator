@@ -273,7 +273,14 @@ export default function CaptionOverlay({
                 position: "absolute",
                 left: 0,
                 top: `${yPct}%`,
-                transform: `translate(0, -50%) translate(${offsetX}px, ${offsetY}px)`,
+                // No horizontal offset here on purpose. A full-width bar is
+                // edge-to-edge by definition, so there is no room to move it
+                // sideways; offsetX only opened a gap on one side and clipped
+                // the other. The export draws this bar in absolute canvas
+                // space at x=0 for the same reason (scene-renderer.ts), and it
+                // ignores groupLayout.x for the bar while still moving the text
+                // inside it. Vertical offset is kept — both paths honour it.
+                transform: `translate(0, -50%) translate(0, ${offsetY}px)`,
                 width: "100%",
                 maxWidth: "100%",
               }
@@ -318,7 +325,17 @@ export default function CaptionOverlay({
             window.addEventListener("mouseup", up);
           }}
           style={{
-            transform: `scale(${layout.scale})`,
+            // The bar is pinned edge-to-edge on the wrapper above, but the text
+            // still has to follow the horizontal drag — the export does exactly
+            // that (bar drawn at x=0, text frame translated by centerX, which
+            // includes groupLayout.x). Translating the row rather than the
+            // wrapper keeps both halves of that behaviour: order matters here,
+            // since CSS applies transforms right-to-left, so the row is scaled
+            // about its own centre and only then shifted, matching
+            // ctx.translate(centerX, centerY) followed by ctx.scale.
+            transform: fullWidthBar
+              ? `translateX(${offsetX}px) scale(${layout.scale})`
+              : `scale(${layout.scale})`,
             ...(fullWidthBar ? { width: "100%" } : {}),
             ...(hasBg
               ? {
