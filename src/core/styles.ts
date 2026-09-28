@@ -30,6 +30,11 @@ export const defaultWordStyle: WordStyle = {
   color: "#FFFFFF",
   strokeColor: "#000000",
   strokeWidth: 1,
+  // The four raw fields below are the "tight" look (see core/shadow.ts) and
+  // stay the source of truth; the label only drives the Inspector's segmented
+  // control. Kept in sync by hand — shadowPatchForLook("tight") must equal
+  // these four values.
+  shadowLook: "tight",
   shadowColor: "rgba(0,0,0,0.5)",
   shadowBlur: 4,
   shadowOffsetX: 0,
@@ -157,4 +162,32 @@ export function resolveWordTransform(
   const base = { ...globalStyle.transform };
   if (word.transform) Object.assign(base, word.transform);
   return base;
+}
+
+/**
+ * Composes a preset / choreography bundle onto the current global style.
+ *
+ * Bundles declare their `style` as a Partial, but a shallow spread replaced the
+ * entire WordStyle — so every field a bundle didn't happen to mention was
+ * silently reset. That is what made clicking a style card wipe the caption's
+ * drop shadow *and* its black outline, and what made the choreography presets
+ * lose the shadow's offset and turn a downward drop into a centred halo.
+ * Merging one level deeper means a bundle only changes what it names; to clear
+ * a field, name it explicitly (`shadowLook: "none"`, `strokeWidth: 0`).
+ *
+ * `motion` is deliberately NOT merged: every bundle specifies entrance, active
+ * and exit, and omitting `emphasis` is how a bundle says "no global emphasis"
+ * (choreography assigns those per word instead). Merging it would leak a stale
+ * global emphasis onto words the bundle never emphasised.
+ */
+export function mergeGlobalStyle(
+  base: GlobalStyle,
+  patch: Partial<GlobalStyle>
+): GlobalStyle {
+  return {
+    ...base,
+    ...patch,
+    style: { ...base.style, ...patch.style },
+    transform: { ...base.transform, ...patch.transform },
+  };
 }

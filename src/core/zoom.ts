@@ -9,7 +9,14 @@ export function buildCameraTimeline(
   videoEffects: VideoEffects
 ): CameraEvent[] {
   const events: CameraEvent[] = [];
-  const emphasisSet = new Set(emphasisWordIds);
+  // No explicit emphasis anywhere -> drive the camera off every word instead
+  // of silently producing zero events. Callers that already have emphasized
+  // words pass them straight through; this only kicks in when the list is
+  // empty, e.g. a choreography preset whose curated emphasis words don't
+  // appear in this transcript.
+  const emphasisSet = new Set(
+    emphasisWordIds.length > 0 ? emphasisWordIds : words.map((w) => w.id)
+  );
 
   for (const word of words) {
     if (!emphasisSet.has(word.id)) continue;

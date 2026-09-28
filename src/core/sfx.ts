@@ -88,11 +88,22 @@ function scoreCandidates(
 
   const candidates: ScoredCandidate[] = [];
 
+  // Mirrors toggleCameraMovement's fallback: with no choreography-assigned
+  // emphasis anywhere in the transcript, every word becomes a candidate at
+  // neutral strength instead of the toggle silently producing zero events.
+  // Density culling still applies, so this settles on the punchiest/shortest
+  // words rather than firing on all of them.
+  const hasEmphasis = words.some((w) => w.animation?.emphasis);
+
   for (const word of words) {
-    if (!word.animation?.emphasis) continue;
+    if (!hasEmphasis) {
+      // fall through — treat as a neutral-strength candidate below
+    } else if (!word.animation?.emphasis) {
+      continue;
+    }
 
     const emphasisStrength =
-      word.animation.emphasis.scaleTo || 140;
+      word.animation?.emphasis?.scaleTo || 140;
 
     // Punchline heuristic: shorter words punctuate a phrase; normalize.
     const len = word.text.length;
