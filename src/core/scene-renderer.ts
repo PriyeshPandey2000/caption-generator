@@ -7,6 +7,12 @@ import {
   WordStyle,
 } from "./types";
 import { resolveWordStyle, MIN_CAPTION_Y, MAX_CAPTION_Y } from "./styles";
+import {
+  CAPTION_PLATE_SHADOW,
+  canvasShadow,
+  isShadowDisabled,
+  resolveShadowSpec,
+} from "./shadow";
 import { sampleZoom } from "./zoom";
 import { easeProgress } from "./easing";
 
@@ -143,6 +149,14 @@ export function evaluateWordVisuals(
   let shadow: { x: number; y: number; blur: number; color: string } | null = null;
   let opacity = style.opacity ?? 1;
 
+  // Shadow precedence, as a total order with no overlap:
+  //   1. the user picked "None"      -> no shadow at all, glow included
+  //   2. a glow recipe is blooming   -> the glow owns the shadow for its window
+  //   3. otherwise                   -> the style's own shadow
+  // An explicit "off" has to beat the automatic glow, otherwise picking None
+  // would still leave a gold bloom on every emphasised word.
+  const shadowOff = isShadowDisabled(style);
+
   const lerp = (a: number, b: number, p: number) => a + (b - a) * p;
   const clampAmount = (v: number) => Math.min(1, Math.max(0, v));
   const clampFont = (px: number) => Math.max(baseFontSize * 0.02, px);
@@ -195,7 +209,7 @@ export function evaluateWordVisuals(
     // The fade/glow opacity eases across the whole lifecycle (above), but the
     // glow text-shadow only blooms while the entrance window is active so it
     // doesn't linger at full radius after the word has settled in.
-    if (entranceActive) {
+    if (entranceActive && !shadowOff) {
       shadow = {
         x: 0,
         y: 0,
@@ -232,7 +246,7 @@ export function evaluateWordVisuals(
       (baseFontSize * (scaleFrom + (scaleTo - scaleFrom) * progress)) / 100
     );
     if (spoken.color && !word.style?.color) color = spoken.color;
-    if (spoken.glowRadius) {
+    if (spoken.glowRadius && !shadowOff) {
       shadow = {
         x: 0,
         y: 0,
@@ -249,12 +263,14 @@ export function evaluateWordVisuals(
         : Math.min(1, Math.max(0, spokenElapsed / spokenDuration));
     const progress = easeProgress(spokenProgress, spoken.easing);
     if (spoken.color && !word.style?.color) color = spoken.color;
-    shadow = {
-      x: 0,
-      y: 0,
-      blur: (spoken.glowRadius ?? 22) * sf * progress,
-      color: spoken.color || "#FFD700",
-    };
+    if (!shadowOff) {
+      shadow = {
+        x: 0,
+        y: 0,
+        blur: (spoken.glowRadius ?? 22) * sf * progress,
+        color: spoken.color || "#FFD700",
+      };
+    }
   }
 
   if (exit && exit.type !== "none" && hasEnded && isGroupLastWord) {
@@ -273,13 +289,11 @@ export function evaluateWordVisuals(
     opacity = clampAmount(lerp(exit.from ?? 1, exit.to ?? 0, progress));
   }
 
-  if (!shadow && style.shadowColor) {
-    shadow = {
-      x: (style.shadowOffsetX || 0) * sf,
-      y: (style.shadowOffsetY || 0) * sf,
-      blur: (style.shadowBlur || 0) * sf,
-      color: style.shadowColor,
-    };
+  // No glow claimed it -> fall back to the style's own shadow. resolveShadowSpec
+  // is the same call the preview and the preset swatch make, so the three
+  // renderers cannot disagree about whether a shadow exists.
+  if (!shadow) {
+    shadow = canvasShadow(resolveShadowSpec(style), sf);
   }
 
   return {
@@ -425,12 +439,15 @@ function paintWord(ctx: CanvasRenderingContext2D, lw: LayoutWord, x: number, bas
     ctx.lineJoin = "round";
     ctx.miterLimit = 1.5;
   }
-  if (v.shadow) {
-    ctx.shadowOffsetX = v.shadow.x;
-    ctx.shadowOffsetY = v.shadow.y;
-    ctx.shadowBlur = v.shadow.blur;
-    ctx.shadowColor = v.shadow.color;
-  }
+  // Assigned unconditionally rather than skipped when there's no shadow. Today
+  // the plate's save/restore above happens to pop its shadow before words are
+  // painted, so nothing leaks — but relying on another function's save/restore
+  // balance to keep this correct is a trap. Stating the full shadow state here
+  // makes paintWord independent of whatever the context happens to carry.
+  ctx.shadowOffsetX = v.shadow?.x ?? 0;
+  ctx.shadowOffsetY = v.shadow?.y ?? 0;
+  ctx.shadowBlur = v.shadow?.blur ?? 0;
+  ctx.shadowColor = v.shadow?.color ?? "transparent";
   if (v.letterSpacingPx !== 0) {
     let cx = x;
     for (const ch of v.text) {
@@ -475,11 +492,14 @@ export function paintCaptionGroup(
   if (fullWidthBar) {
     const boxH = layout.height * scale + padVertical * scale * 2;
     const boxY = centerY - boxH / 2;
+    const plateShadow = isShadowDisabled(globalStyle.style)
+      ? null
+      : CAPTION_PLATE_SHADOW;
     ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.35)";
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 4;
-    ctx.shadowBlur = 24;
+    ctx.shadowColor = plateShadow?.color ?? "transparent";
+    ctx.shadowOffsetX = plateShadow?.offsetX ?? 0;
+    ctx.shadowOffsetY = plateShadow?.offsetY ?? 0;
+    ctx.shadowBlur = plateShadow?.blur ?? 0;
     ctx.fillStyle = globalStyle.style.backgroundColor!;
     roundRectPath(ctx, 0, boxY, outW, boxH, radius * scale);
     ctx.fill();
@@ -494,10 +514,17 @@ export function paintCaptionGroup(
     const boxW = layout.width + padHorizontal * 2;
     const boxH = layout.height + padVertical * 2;
     ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.35)";
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 4;
-    ctx.shadowBlur = 24;
+    // The plate's own shadow, shared with the preview (CAPTION_PLATE_SHADOW).
+    // Deliberately unscaled — it never was, and both renderers now read the one
+    // constant so they can't drift. Picking the "None" look drops it too, so
+    // "no shadow" means no shadow rather than "no shadow except the box".
+    const plateShadow = isShadowDisabled(globalStyle.style)
+      ? null
+      : CAPTION_PLATE_SHADOW;
+    ctx.shadowColor = plateShadow?.color ?? "transparent";
+    ctx.shadowOffsetX = plateShadow?.offsetX ?? 0;
+    ctx.shadowOffsetY = plateShadow?.offsetY ?? 0;
+    ctx.shadowBlur = plateShadow?.blur ?? 0;
     ctx.fillStyle = globalStyle.style.backgroundColor!;
     roundRectPath(
       ctx,

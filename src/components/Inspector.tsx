@@ -1,8 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { Word, WordStyle, WordMotion, AnimationRecipe, SfxName, SfxEvent } from "@/core/types";
 import { MIN_CAPTION_Y, MAX_CAPTION_Y, resolveWordStyle, resolveWordMotion, FONT_FAMILY_OPTIONS } from "@/core/styles";
+import {
+  SHADOW_LOOKS,
+  alphaOf,
+  resolveShadowSpec,
+  shadowFineTunePatch,
+  shadowLookHint,
+  shadowLookOf,
+  shadowPatchForLook,
+} from "@/core/shadow";
+import { sliderFillStyle } from "./rangeFill";
 
 export default function Inspector() {
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
@@ -263,6 +274,97 @@ const SFX_NAMES: SfxName[] = [
   "record-scratch",
 ];
 
+// A caption shadow is a look, not a blur number: the softness only reads well
+// when the offset and opacity move with it, which is why the four raw fields
+// are authored together in core/shadow.ts. Picking a look writes all four, so
+// every option looks deliberate — including "hard", whose blur 0 is only
+// convincing at high opacity with a real offset. The fine-tune sliders are the
+// escape hatch; hand-editing drops the label and the control reads "Custom"
+// rather than pretending to still be a named look.
+function ShadowControl({
+  style,
+  onChange,
+}: {
+  style: Partial<WordStyle>;
+  onChange: (s: Partial<WordStyle>) => void;
+}) {
+  const [fineTuneOpen, setFineTuneOpen] = useState(false);
+  const selection = shadowLookOf(style);
+  const spec = resolveShadowSpec(style);
+  const alpha = spec ? alphaOf(spec.color) : null;
+  const custom = selection === "custom";
+  const activeHint = shadowLookHint(selection);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-xs text-zinc-500">Shadow</label>
+        <span className="text-xs text-zinc-600">{activeHint}</span>
+      </div>
+      <div className="flex gap-1">
+        {SHADOW_LOOKS.map((look) => (
+          <button
+            key={look.id}
+            onClick={() => onChange(shadowPatchForLook(look.id))}
+            title={look.hint}
+            className={`flex-1 h-7 rounded text-[10px] font-medium transition-colors ${
+              selection === look.id
+                ? "bg-[#00FF66] text-black"
+                : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-white"
+            }`}
+          >
+            {look.label}
+          </button>
+        ))}
+      </div>
+
+      {spec ? (
+        <>
+          <button
+            onClick={() => setFineTuneOpen((v) => !v)}
+            className="mt-1.5 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            {fineTuneOpen ? "▾" : "▸"} Fine-tune
+          </button>
+          {fineTuneOpen && (
+            <div className="mt-1.5 space-y-3">
+              <FieldGroup
+                label="Blur"
+                value={spec.blur}
+                onChange={(v) => onChange(shadowFineTunePatch(style, { blur: v as number }))}
+                min={0}
+                max={20}
+                unit="px"
+              />
+              {alpha !== null && (
+                <FieldGroup
+                  label="Opacity"
+                  value={Math.round(alpha * 100)}
+                  onChange={(v) =>
+                    onChange(shadowFineTunePatch(style, { alpha: (v as number) / 100 }))
+                  }
+                  min={0}
+                  max={100}
+                  step={5}
+                  unit="%"
+                />
+              )}
+              <p className="text-[10px] text-zinc-600 leading-relaxed">
+                Offset {spec.offsetX}, {spec.offsetY} ·{" "}
+                {custom ? "hand-tuned" : "from the " + activeHint.toLowerCase() + " look"}
+              </p>
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="mt-1.5 text-[10px] text-zinc-600 leading-relaxed">
+          No shadow on the text or the caption background box.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function StyleControls({
   style,
   onChange,
@@ -297,7 +399,7 @@ function StyleControls({
       <FieldGroup label="Stroke Width" value={style.strokeWidth} onChange={(v) => onChange({ strokeWidth: v as number })} min={0} max={10} unit="px" />
       <FieldGroup label="Font Weight" value={style.fontWeight} onChange={(v) => onChange({ fontWeight: v as number })} min={100} max={900} step={100} />
       <FieldGroup label="Letter Spacing" value={style.letterSpacing} onChange={(v) => onChange({ letterSpacing: v as number })} min={0} max={20} unit="px" />
-      <FieldGroup label="Shadow Blur" value={style.shadowBlur} onChange={(v) => onChange({ shadowBlur: v as number })} min={0} max={20} unit="px" />
+      <ShadowControl style={style} onChange={onChange} />
       <FieldGroup
         label="Background Color"
         type="color"
@@ -408,7 +510,8 @@ function PositionControls({
         max={MAX_CAPTION_Y}
         value={y}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-[#00ff66]"
+        className="w-full"
+        style={sliderFillStyle(y, MIN_CAPTION_Y, MAX_CAPTION_Y)}
       />
       <div className="text-[11px] text-zinc-500">
         Vertical position: {y}% (clamped to stay inside the video)
@@ -601,12 +704,12 @@ function FieldGroup({
           step={step}
           value={typeof value === "number" ? value : (min ?? 0)}
           onChange={(e) => onChange(Number(e.target.value))}
-          style={
-            {
-              "--slider-fill": `${(((typeof value === "number" ? value : (min ?? 0)) - (min ?? 0)) / ((max ?? 100) - (min ?? 0))) * 100}%`,
-            } as React.CSSProperties
-          }
           className="w-full"
+          style={sliderFillStyle(
+            typeof value === "number" ? value : (min ?? 0),
+            min ?? 0,
+            max ?? 100
+          )}
         />
       )}
     </div>

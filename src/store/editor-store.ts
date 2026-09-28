@@ -16,7 +16,7 @@ import {
   DictionaryEntry,
   BackgroundMode,
 } from "@/core/types";
-import { defaultGlobalStyle } from "@/core/styles";
+import { defaultGlobalStyle, mergeGlobalStyle } from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
 import { preprocessBackgroundImage } from "@/core/background-image";
 import { isSingleToken } from "@/core/dictionary";
@@ -786,12 +786,11 @@ export const useEditorStore = create<EditorState>((set) => ({
       return {
         project: {
           ...s.project,
-          globalStyle: {
-            ...s.project.globalStyle,
+          globalStyle: mergeGlobalStyle(s.project.globalStyle, {
             ...bundle.global,
             sfx,
             videoEffects: newVideoEffects,
-          },
+          }),
           composition: { ...s.project.composition, sfxEvents },
           transcription: { ...trans, words },
         },
@@ -856,7 +855,7 @@ export const useEditorStore = create<EditorState>((set) => ({
     set((s) => ({
       project: {
         ...s.project,
-        globalStyle: { ...s.project.globalStyle, ...preset },
+        globalStyle: mergeGlobalStyle(s.project.globalStyle, preset),
       },
     })),
 
@@ -869,10 +868,8 @@ export const useEditorStore = create<EditorState>((set) => ({
         const emphasisIds = trans.words
           .filter((w) => w.animation?.emphasis)
           .map((w) => w.id);
-        // If no words are explicitly emphasized, drive the camera off every
-        // word so the toggle has a visible effect instead of doing nothing.
-        const ids = emphasisIds.length > 0 ? emphasisIds : trans.words.map((w) => w.id);
-        const events = buildCameraTimeline(trans.words, ids, ve);
+        // buildCameraTimeline falls back to every word when this is empty.
+        const events = buildCameraTimeline(trans.words, emphasisIds, ve);
         return {
           project: {
             ...s.project,

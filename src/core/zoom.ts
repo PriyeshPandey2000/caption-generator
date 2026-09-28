@@ -9,16 +9,35 @@ export function buildCameraTimeline(
   videoEffects: VideoEffects
 ): CameraEvent[] {
   const events: CameraEvent[] = [];
+  // No explicit emphasis anywhere -> drive the camera off every word instead
+  // of silently producing zero events. Callers that already have emphasized
+  // words pass them straight through; this only kicks in when the list is
+  // empty, e.g. a choreography preset whose curated emphasis words don't
+  // appear in this transcript.
   const emphasisSet = new Set(emphasisWordIds);
+  const isFallback = emphasisSet.size === 0;
+
+  const anticipationSec = DEFAULT_ANTICIPATION_MS / 1000;
+  const inSec = videoEffects.inDuration / 1000;
+  const outSec = videoEffects.outDuration / 1000;
 
   for (const word of words) {
-    if (!emphasisSet.has(word.id)) continue;
-
-    const anticipationSec = DEFAULT_ANTICIPATION_MS / 1000;
-    const inSec = videoEffects.inDuration / 1000;
-    const outSec = videoEffects.outDuration / 1000;
+    if (!isFallback && !emphasisSet.has(word.id)) continue;
 
     const anticipate = Math.max(0, word.start - anticipationSec);
+
+    // In the fallback every word qualifies, and at normal speech cadence their
+    // envelopes overlap by construction (100ms anticipation + 300ms release
+    // around a ~250ms word), so mergeOverlapping would chain the whole
+    // transcript into a single event peaking on the *last* word — a slow drift
+    // with no punch left in it. Space the fallback picks so each punch stands
+    // on its own; skipping the merge instead would not help, because
+    // sampleZoom resolves the first event containing t and the earlier tail
+    // would shadow the later punch. Explicit emphasis is sparse by
+    // construction, so it keeps the merge.
+    const last = events[events.length - 1];
+    if (isFallback && last && anticipate <= last.end) continue;
+
     const holdStart = word.start + Math.min(inSec, (word.end - word.start) * 0.3);
     const releaseEnd = word.end + outSec;
 

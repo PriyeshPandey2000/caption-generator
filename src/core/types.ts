@@ -1,3 +1,9 @@
+// A caption shadow is a *look*, not a single number: softness only reads well
+// when the offset and the opacity move with it. These are the authored looks —
+// the four raw fields on WordStyle are what actually render, and these are the
+// coherent combinations of them (see core/shadow.ts).
+export type ShadowLookId = "none" | "tight" | "soft" | "hard";
+
 export interface WordStyle {
   fontFamily?: string;
   fontSize?: number;
@@ -8,6 +14,10 @@ export interface WordStyle {
   shadowBlur?: number;
   shadowOffsetX?: number;
   shadowOffsetY?: number;
+  // Labels the current raw shadow fields as one of the authored looks. The raw
+  // fields stay the source of truth so a hand-tuned or preset-supplied shadow
+  // is never silently discarded; "none" is the one value that overrides them.
+  shadowLook?: ShadowLookId;
   backgroundColor?: string;
   backgroundPadding?: number;
   backgroundBorderRadius?: number;

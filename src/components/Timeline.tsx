@@ -2,6 +2,7 @@
 
 import { useRef, useCallback, useMemo, useState, useEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
+import { sliderFillStyle } from "./rangeFill";
 
 const FILMSTRIP_FRAMES = 14;
 
@@ -312,7 +313,7 @@ export default function Timeline() {
             onChange={(e) => setZoom(Number(e.target.value))}
             className="w-24"
             title="Timeline zoom"
-            style={{ "--slider-fill": `${((zoom - 1) / (4 - 1)) * 100}%` } as React.CSSProperties}
+            style={sliderFillStyle(zoom, 1, 4)}
           />
           <button
             type="button"

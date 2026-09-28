@@ -58,7 +58,11 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-runnable-track {
   height: 5px;
   border-radius: 9999px;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) var(--slider-fill, 50%), #3f3f46 var(--slider-fill, 50%), #3f3f46 100%);
+  /* 0%, not 50%: a slider that doesn't set --slider-fill (see
+     components/rangeFill.ts) then shows an empty track, which reads as "this one
+     is missing its fill", rather than a plausible half-fill that looks like a
+     meter following some other rule. */
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) var(--slider-fill, 0%), #3f3f46 var(--slider-fill, 0%), #3f3f46 100%);
 }
 
 input[type="range"]::-webkit-slider-thumb {

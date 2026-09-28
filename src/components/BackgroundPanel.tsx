@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { BackgroundMode } from "@/core/types";
+import { sliderFillStyle } from "./rangeFill";
 
 // Canvas rejects invalid fillStyle assignments silently, so an arbitrary string
 // reaching background.color would show a stale color in the preview while the
@@ -85,11 +86,7 @@ export default function BackgroundPanel() {
             value={background.blurAmount}
             onChange={(e) => setBackgroundBlurAmount(Number(e.target.value))}
             className="w-full"
-            style={
-              {
-                "--slider-fill": `${((background.blurAmount - 2) / (30 - 2)) * 100}%`,
-              } as React.CSSProperties
-            }
+            style={sliderFillStyle(background.blurAmount, 2, 30)}
           />
         </div>
       )}
