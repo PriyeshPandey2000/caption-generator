@@ -400,6 +400,63 @@ function StyleControls({
       <FieldGroup label="Font Weight" value={style.fontWeight} onChange={(v) => onChange({ fontWeight: v as number })} min={100} max={900} step={100} />
       <FieldGroup label="Letter Spacing" value={style.letterSpacing} onChange={(v) => onChange({ letterSpacing: v as number })} min={0} max={20} unit="px" />
       <ShadowControl style={style} onChange={onChange} />
+      <FieldGroup
+        label="Background Color"
+        type="color"
+        value={style.backgroundColor && style.backgroundColor !== "transparent" ? style.backgroundColor : "#000000"}
+        onChange={(v) => onChange({ backgroundColor: v as string })}
+      />
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-zinc-500">Background enabled</span>
+        <button
+          type="button"
+          aria-pressed={!!style.backgroundColor && style.backgroundColor !== "transparent"}
+          onClick={() =>
+            onChange({
+              backgroundColor:
+                style.backgroundColor && style.backgroundColor !== "transparent"
+                  ? "transparent"
+                  : "#000000",
+            })
+          }
+          className={`
+            relative w-10 h-5 rounded-full transition-colors
+            ${style.backgroundColor && style.backgroundColor !== "transparent" ? "bg-[#00FF66]" : "bg-zinc-700"}
+          `}
+        >
+          <span
+            className={`
+              absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
+              ${style.backgroundColor && style.backgroundColor !== "transparent" ? "translate-x-5" : "translate-x-0.5"}
+            `}
+          />
+        </button>
+      </div>
+      {style.backgroundColor && style.backgroundColor !== "transparent" && (
+        <>
+          <FieldGroup label="Background Padding" value={style.backgroundPadding} onChange={(v) => onChange({ backgroundPadding: v as number })} min={0} max={40} unit="px" />
+          <FieldGroup label="Background Radius" value={style.backgroundBorderRadius} onChange={(v) => onChange({ backgroundBorderRadius: v as number })} min={0} max={40} unit="px" />
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-zinc-500">Full-width bar</span>
+            <button
+              type="button"
+              aria-pressed={!!style.backgroundFullWidth}
+              onClick={() => onChange({ backgroundFullWidth: !style.backgroundFullWidth })}
+              className={`
+                relative w-10 h-5 rounded-full transition-colors
+                ${style.backgroundFullWidth ? "bg-[#00FF66]" : "bg-zinc-700"}
+              `}
+            >
+              <span
+                className={`
+                  absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
+                  ${style.backgroundFullWidth ? "translate-x-5" : "translate-x-0.5"}
+                `}
+              />
+            </button>
+          </div>
+        </>
+      )}
 
       <div>
         <label className="text-xs text-zinc-500 block mb-1">Text Transform</label>

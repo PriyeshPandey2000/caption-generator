@@ -21,6 +21,7 @@ export interface WordStyle {
   backgroundColor?: string;
   backgroundPadding?: number;
   backgroundBorderRadius?: number;
+  backgroundFullWidth?: boolean;
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
   fontWeight?: number;
   letterSpacing?: number;
