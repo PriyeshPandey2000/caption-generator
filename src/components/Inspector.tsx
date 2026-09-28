@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useEditorStore } from "@/store/editor-store";
-import { Word, WordStyle, WordMotion, AnimationRecipe, SfxName, SfxEvent } from "@/core/types";
+import { Word, WordStyle, WordMotion, AnimationRecipe, SfxName, SfxEvent, GlobalStyle } from "@/core/types";
 import { MIN_CAPTION_Y, MAX_CAPTION_Y, resolveWordStyle, resolveWordMotion, FONT_FAMILY_OPTIONS } from "@/core/styles";
 import {
   SHADOW_LOOKS,
@@ -150,6 +150,8 @@ export default function Inspector() {
         </h4>
         <StyleControls
           style={resolveWordStyle(first, speakerStyles, globalStyle)}
+          globalStyle={globalStyle}
+          onGlobalChange={(s) => updateGlobalStyle({ style: { ...globalStyle.style, ...s } })}
           onChange={(s) => {
             if (effectiveScope === "all") {
               applyStyleToAllWords(s);
@@ -186,6 +188,8 @@ export default function Inspector() {
         <h3 className="text-sm font-semibold text-white mb-4">Global Style</h3>
         <StyleControls
           style={globalStyle.style}
+          globalStyle={globalStyle}
+          onGlobalChange={(s) => updateGlobalStyle({ style: { ...globalStyle.style, ...s } })}
           onChange={(s) => updateGlobalStyle({ style: { ...globalStyle.style, ...s } })}
         />
         <h3 className="text-sm font-semibold text-white mt-6 mb-2">Position</h3>
@@ -243,6 +247,8 @@ export default function Inspector() {
       </h4>
       <StyleControls
         style={resolveWordStyle(selectedWord, speakerStyles, globalStyle)}
+        globalStyle={globalStyle}
+        onGlobalChange={(s) => updateGlobalStyle({ style: { ...globalStyle.style, ...s } })}
         onChange={(s) =>
           effectiveScope === "all"
             ? applyStyleToAllWords(s)
@@ -516,10 +522,23 @@ function ShadowControl({
 function StyleControls({
   style,
   onChange,
+  globalStyle,
+  onGlobalChange,
 }: {
   style: Partial<WordStyle>;
   onChange: (s: Partial<WordStyle>) => void;
+  // The caption plate is a group-level element in BOTH renderers:
+  // scene-renderer.ts reads backgroundColor/Padding/BorderRadius/FullWidth
+  // straight off project.globalStyle, and CaptionOverlay.tsx does the same.
+  // Neither resolves a per-word override, so sending these fields down the
+  // "This word" scope made the toggle read as ON while neither the preview nor
+  // the render drew a box. They are pinned global here, and read back from the
+  // global style so the control can never show a value that is not in effect.
+  globalStyle: GlobalStyle;
+  onGlobalChange: (s: Partial<WordStyle>) => void;
 }) {
+  const plateStyle = globalStyle.style;
+  const plateOn = !!plateStyle.backgroundColor && plateStyle.backgroundColor !== "transparent";
   return (
     <div className="space-y-3">
       <div>
@@ -562,24 +581,21 @@ function StyleControls({
           <span className="text-xs text-zinc-500">Show background box</span>
           <button
             type="button"
-            aria-pressed={!!style.backgroundColor && style.backgroundColor !== "transparent"}
+            aria-pressed={plateOn}
             onClick={() =>
-              onChange({
-                backgroundColor:
-                  style.backgroundColor && style.backgroundColor !== "transparent"
-                    ? "transparent"
-                    : "#000000",
+              onGlobalChange({
+                backgroundColor: plateOn ? "transparent" : "#000000",
               })
             }
             className={`
               relative w-10 h-5 rounded-full transition-colors
-              ${style.backgroundColor && style.backgroundColor !== "transparent" ? "bg-[#00FF66]" : "bg-zinc-700"}
+              ${plateOn ? "bg-[#00FF66]" : "bg-zinc-700"}
             `}
           >
             <span
               className={`
                 absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
-                ${style.backgroundColor && style.backgroundColor !== "transparent" ? "translate-x-5" : "translate-x-0.5"}
+                ${plateOn ? "translate-x-5" : "translate-x-0.5"}
               `}
             />
           </button>
@@ -587,31 +603,31 @@ function StyleControls({
         {/* Only shown once the box is on: the color swatch used to sit above
             this toggle and stayed live even while disabled, so touching it to
             preview a color silently turned the box back on as a side effect. */}
-        {style.backgroundColor && style.backgroundColor !== "transparent" && (
+        {plateOn && (
           <div className="mt-3 space-y-3">
             <FieldGroup
               label="Box Color"
               type="color"
-              value={style.backgroundColor}
-              onChange={(v) => onChange({ backgroundColor: v as string })}
+              value={plateStyle.backgroundColor}
+              onChange={(v) => onGlobalChange({ backgroundColor: v as string })}
             />
-            <FieldGroup label="Box Padding" value={style.backgroundPadding} onChange={(v) => onChange({ backgroundPadding: v as number })} min={0} max={40} unit="px" />
-            <FieldGroup label="Box Corner Radius" value={style.backgroundBorderRadius} onChange={(v) => onChange({ backgroundBorderRadius: v as number })} min={0} max={40} unit="px" />
+            <FieldGroup label="Box Padding" value={plateStyle.backgroundPadding} onChange={(v) => onGlobalChange({ backgroundPadding: v as number })} min={0} max={40} unit="px" />
+            <FieldGroup label="Box Corner Radius" value={plateStyle.backgroundBorderRadius} onChange={(v) => onGlobalChange({ backgroundBorderRadius: v as number })} min={0} max={40} unit="px" />
             <div className="flex items-center justify-between">
               <span className="text-xs text-zinc-500">Full-width bar</span>
               <button
                 type="button"
-                aria-pressed={!!style.backgroundFullWidth}
-                onClick={() => onChange({ backgroundFullWidth: !style.backgroundFullWidth })}
+                aria-pressed={!!plateStyle.backgroundFullWidth}
+                onClick={() => onGlobalChange({ backgroundFullWidth: !plateStyle.backgroundFullWidth })}
                 className={`
                   relative w-10 h-5 rounded-full transition-colors
-                  ${style.backgroundFullWidth ? "bg-[#00FF66]" : "bg-zinc-700"}
+                  ${plateStyle.backgroundFullWidth ? "bg-[#00FF66]" : "bg-zinc-700"}
                 `}
               >
                 <span
                   className={`
                     absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
-                    ${style.backgroundFullWidth ? "translate-x-5" : "translate-x-0.5"}
+                    ${plateStyle.backgroundFullWidth ? "translate-x-5" : "translate-x-0.5"}
                   `}
                 />
               </button>
