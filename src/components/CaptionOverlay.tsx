@@ -189,6 +189,11 @@ export default function CaptionOverlay({
 
   const yPct = Math.min(MAX_CAPTION_Y, Math.max(MIN_CAPTION_Y, globalStyle.transform.y ?? 80));
   const maxW = globalStyle.style.maxWidth ?? 800;
+  // groupLayout.x/y are stored in design-surface px (the drag handler converts
+  // from screen px), and the export canvas scales them by its own scaleFactor —
+  // so the preview must apply the same conversion to land captions identically.
+  const offsetX = layout.x * scaleFactor;
+  const offsetY = layout.y * scaleFactor;
 
   return (
     <div
@@ -268,7 +273,7 @@ export default function CaptionOverlay({
                 position: "absolute",
                 left: 0,
                 top: `${yPct}%`,
-                transform: `translate(0, -50%) translate(${layout.x}px, ${layout.y}px)`,
+                transform: `translate(0, -50%) translate(${offsetX}px, ${offsetY}px)`,
                 width: "100%",
                 maxWidth: "100%",
               }
@@ -276,7 +281,7 @@ export default function CaptionOverlay({
                 position: "absolute",
                 left: "50%",
                 top: `${yPct}%`,
-                transform: `translate(-50%, -50%) translate(${layout.x}px, ${layout.y}px)`,
+                transform: `translate(-50%, -50%) translate(${offsetX}px, ${offsetY}px)`,
                 width: "max-content",
                 maxWidth: `min(${maxW * scaleFactor}px, 92%)`,
               }
@@ -293,11 +298,16 @@ export default function CaptionOverlay({
             const startY = e.clientY;
             const startLayout = useEditorStore.getState().groupLayouts[activeGroup.id] || { x: 0, y: 0, scale: 1 };
             const move = (ev: MouseEvent) => {
+              // Store the delta in design-surface px, not screen px: the export
+              // scales groupLayout.x/y by its own scaleFactor, so a raw
+              // clientX delta would place the caption at a different spot in
+              // the render than in the preview at any other preview size.
+              const inv = scaleFactor > 0 ? 1 / scaleFactor : 1;
               useEditorStore
                 .getState()
                 .updateGroupLayout(activeGroup.id, {
-                  x: startLayout.x + (ev.clientX - startX),
-                  y: startLayout.y + (ev.clientY - startY),
+                  x: startLayout.x + (ev.clientX - startX) * inv,
+                  y: startLayout.y + (ev.clientY - startY) * inv,
                 });
             };
             const up = () => {

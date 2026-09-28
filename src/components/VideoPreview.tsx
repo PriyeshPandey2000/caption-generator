@@ -204,15 +204,23 @@ export default function VideoPreview() {
     let rafId: number;
 
     const tick = () => {
+      // While playing, sample the media clock directly — it updates every
+      // frame, whereas the store's currentTime only follows the browser's
+      // throttled timeupdate event (~4/sec), which made the zoom stepped.
+      // While paused/scrubbing, fall back to the store clock: gating this
+      // whole block on isPlaying used to leave the preview showing scale(1)
+      // at a moment the export renders zoomed. SFX timing stays playback-only.
+      const t =
+        isPlaying && !video.paused
+          ? video.currentTime
+          : useEditorStore.getState().currentTime;
+      const scale =
+        videoEffects.cameraEvents.length > 0
+          ? sampleZoom(t, videoEffects.cameraEvents, videoEffects)
+          : 1;
+      zoomEl.style.transform = `scale(${scale})`;
+
       if (isPlaying && !video.paused) {
-        if (videoEffects.cameraEvents.length > 0) {
-          const scale = sampleZoom(
-            video.currentTime,
-            videoEffects.cameraEvents,
-            videoEffects
-          );
-          zoomEl.style.transform = `scale(${scale})`;
-        }
         if (sfxSettings.enabled && sfxEvents.length > 0) {
           sfxEngine.setRunning(true);
           sfxEngine.scheduleAhead(video.currentTime);
@@ -220,7 +228,6 @@ export default function VideoPreview() {
           sfxEngine.setRunning(false);
         }
       } else {
-        zoomEl.style.transform = "scale(1)";
         sfxEngine.setRunning(false);
       }
       rafId = requestAnimationFrame(tick);
@@ -314,6 +321,16 @@ export default function VideoPreview() {
       ? Math.min(surface.h * (9 / 16), surface.w)
       : Math.min(surface.w, surface.h * surface.aspect)
     : 0;
+  // Height of the video's *rendered* rect, using the same object-contain math
+  // the <video> element applies. The caption layer is sized to this rect rather
+  // than the surrounding box so percentage-based positions (e.g. top: 80%)
+  // resolve against the frame — matching the export canvas — instead of
+  // drifting by the letterbox margin whenever the source isn't the box's shape.
+  const displayedVideoHeight = surface
+    ? previewPlatform !== "none"
+      ? displayedVideoWidth * (16 / 9)
+      : Math.min(surface.h, surface.w / surface.aspect)
+    : 0;
   // Scale captions as `designPx / 1280` of the rendered frame width — the same
   // ratio the export always produces (its outW/1280 scaleFactor cancels with
   // the output width). Lets the preview reproduce the export at any window size:
@@ -337,7 +354,21 @@ export default function VideoPreview() {
               ? "aspect-[9/16] max-w-full ring-1 ring-white/15 cursor-grab active:cursor-grabbing select-none"
               : "w-full"
           }`}
-          style={cropActive ? { touchAction: "none" } : undefined}
+          // Sized from the same displayedVideoWidth/Height the caption overlay
+          // uses below, not left to aspect-ratio + max-w-full + h-full: when
+          // the container is narrower than the 9:16 ratio wants at full
+          // height, max-w-full clamps the width but CSS leaves the (already
+          // definite) h-full height alone, so the box ends up taller than its
+          // own 9:16 shape and drifts out of sync with the overlay's rect.
+          style={
+            cropActive
+              ? {
+                  touchAction: "none",
+                  width: displayedVideoWidth || undefined,
+                  height: displayedVideoHeight || undefined,
+                }
+              : undefined
+          }
         >
           <div
             ref={zoomRef}
@@ -391,15 +422,33 @@ export default function VideoPreview() {
               />
             )}
           </div>
+          {/* Caption + gradient layers are sized to the video's rendered rect so
+              they line up with the export frame under letterboxing. Sits
+              outside zoomRef: the export zooms the video, not the captions. */}
           <div
-            className="absolute inset-x-0 bottom-0 pointer-events-none"
             style={{
-              height: "35%",
-              background:
-                "linear-gradient(to top, rgba(0,0,0,0.65), transparent)",
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              transform: "translate(-50%, -50%)",
+              width: displayedVideoWidth || undefined,
+              height: displayedVideoHeight || undefined,
             }}
-          />
-          <CaptionOverlay onBackgroundClick={handlePlayPause} scaleFactor={captionScale} />
+          >
+            {/* pointer-events-none on the gradient only, not this wrapper:
+                CaptionOverlay covers the same rect and needs real clicks to
+                reach its own onMouseDown for marquee-select, click-to-deselect,
+                and background-click play/pause. */}
+            <div
+              className="absolute inset-x-0 bottom-0 pointer-events-none"
+              style={{
+                height: "35%",
+                background:
+                  "linear-gradient(to top, rgba(0,0,0,0.65), transparent)",
+              }}
+            />
+            <CaptionOverlay onBackgroundClick={handlePlayPause} scaleFactor={captionScale} />
+          </div>
           <PlatformPreviewOverlay platform={previewPlatform} />
           <ReframeHint key={previewPlatform} active={cropActive} />
         </div>

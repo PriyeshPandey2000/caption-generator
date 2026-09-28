@@ -54,12 +54,12 @@ const styleBundles: Record<string, ChoreographyBundle> = {
   mrbeast: {
     description: "High-energy MrBeast style — punchy, loud, yellow-accented",
     emphasisWords: ["pop", "anything", "big", "energy", "fastest", "never"],
-    cameraMovement: { enabled: true, intensity: 0.7 },
+    cameraMovement: { enabled: true, intensity: 0.85 },
     sfx: { enabled: true, pack: "creator", density: "energetic" },
     global: {
       style: {
         fontFamily: "Impact, 'Arial Black', sans-serif",
-        fontSize: 64,
+        fontSize: 76,
         color: "#FFFFFF",
         strokeColor: "#FFD700",
         strokeWidth: 4,

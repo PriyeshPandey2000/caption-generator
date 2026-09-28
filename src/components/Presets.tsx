@@ -63,7 +63,7 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
     style: {
       style: {
         fontFamily: "Impact, sans-serif",
-        fontSize: 64,
+        fontSize: 76,
         color: "#FFD700",
         strokeColor: "#000000",
         strokeWidth: 3,
