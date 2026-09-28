@@ -4,6 +4,12 @@ import { useMemo, useRef, useState, useLayoutEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { resolveWordStyle, MIN_CAPTION_Y, MAX_CAPTION_Y, FONT_FAMILY_OPTIONS } from "@/core/styles";
 import { easeProgress } from "@/core/easing";
+import {
+  CAPTION_PLATE_SHADOW,
+  cssShadow,
+  isShadowDisabled,
+  resolveShadowSpec,
+} from "@/core/shadow";
 import { Word, WordStyle } from "@/core/types";
 import EditableWord from "@/components/EditableWord";
 
@@ -294,9 +300,13 @@ export default function CaptionOverlay({
             ...(hasBg
               ? {
                   backgroundColor: groupBg,
-                  padding: `${(globalStyle.style.backgroundPadding ?? 6) * scaleFactor}px ${(globalStyle.style.backgroundPadding ?? 6) * 2 * scaleFactor}px`,
+                  padding: `${(globalStyle.style.backgroundPadding ?? 6) * scaleFactor}px ${(globalStyle.style.backgroundPadding ?? 6) * scaleFactor * 2}px`,
                   borderRadius: `${(globalStyle.style.backgroundBorderRadius ?? 8) * scaleFactor}px`,
-                  boxShadow: "0 4px 24px rgba(0,0,0,0.35)",
+                  // Same constant the export canvas uses, so the plate's shadow
+                  // can't differ between preview and render. "None" removes it.
+                  boxShadow: isShadowDisabled(globalStyle.style)
+                    ? undefined
+                    : cssShadow(CAPTION_PLATE_SHADOW),
                 }
               : {}),
           }}
@@ -387,6 +397,12 @@ function WordSpan({
   // scene-renderer.
   let entranceFontPx: number | null = null;
 
+  // Same total order as scene-renderer's evaluateWordVisuals: an explicit
+  // "None" beats the glow recipes, a blooming glow beats the style shadow, and
+  // otherwise the style's own shadow applies. Kept identical on purpose — this
+  // is the preview/export sync point.
+  const shadowOff = isShadowDisabled(style);
+
   // Entrance: scale 80→100 in 180ms after word appears (eased per-recipe, so
   // a cubic-bezier overshoot pops). Animate font-size, not transform: scale —
   // same reasoning as the active-word pop below: transform distorts
@@ -441,7 +457,7 @@ function WordSpan({
     // The glow text-shadow only blooms while the entrance window is active so
     // it doesn't linger at full radius after the word has settled in — the
     // fade/glow opacity above still eases across the whole lifecycle.
-    if (entranceActive) {
+    if (entranceActive && !shadowOff) {
       animStyle.textShadow = `0 0 ${(entrance.glowRadius ?? 20) * scaleFactor * progress}px ${entrance.color || "#FFD700"}`;
     }
   }
@@ -484,7 +500,7 @@ function WordSpan({
     // (which is "spoken now" by definition) silently reverts to the
     // animation's color and the color picker looks broken.
     if (spoken.color && !word.style?.color) animStyle.color = spoken.color;
-    if (spoken.glowRadius) {
+    if (spoken.glowRadius && !shadowOff) {
       animStyle.textShadow = `0 0 ${(spoken.glowRadius ?? 22) * scaleFactor * eased}px ${spoken.color || "#FFD700"}`;
     }
   } else if (isSpokenNow && spoken && spoken.type === "glow") {
@@ -496,7 +512,9 @@ function WordSpan({
         : Math.min(1, Math.max(0, elapsed / duration));
     const eased = easeProgress(progress, spoken.easing);
     if (spoken.color && !word.style?.color) animStyle.color = spoken.color;
-    animStyle.textShadow = `0 0 ${(spoken.glowRadius ?? 22) * scaleFactor * eased}px ${spoken.color || "#FFD700"}`;
+    if (!shadowOff) {
+      animStyle.textShadow = `0 0 ${(spoken.glowRadius ?? 22) * scaleFactor * eased}px ${spoken.color || "#FFD700"}`;
+    }
   }
 
   // Exit: fade out after word ends, optionally shrinking (exit "scale"). Pure
@@ -551,9 +569,10 @@ function WordSpan({
         WebkitTextStroke: style.strokeWidth
           ? `${style.strokeWidth * scaleFactor}px ${style.strokeColor}`
           : undefined,
-        textShadow: style.shadowColor
-          ? `${(style.shadowOffsetX || 0) * scaleFactor}px ${(style.shadowOffsetY || 0) * scaleFactor}px ${(style.shadowBlur || 0) * scaleFactor}px ${style.shadowColor}`
-          : undefined,
+        // Resolved through the same helper the export canvas uses, then spelled
+        // as CSS. `animStyle` spreads after this, so a blooming glow wins here
+        // exactly as it does in the export.
+        textShadow: cssShadow(resolveShadowSpec(style), scaleFactor),
         opacity: style.opacity,
         ...animStyle,
       }}

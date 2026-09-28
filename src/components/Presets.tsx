@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { GlobalStyle, WordStyle, SfxDensity, SfxVolume, SfxPackId } from "@/core/types";
 import { resolveChoreography } from "@/core/choreography";
+import { cssShadow, resolveShadowSpec, shadowPatchForLook } from "@/core/shadow";
+import { sliderFillStyle } from "./rangeFill";
 
 const CUSTOM_PRESETS_KEY = "captionlab_custom_presets";
 
@@ -29,6 +31,7 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
         color: "#FFFFFF",
         strokeColor: "#000000",
         strokeWidth: 1,
+        ...shadowPatchForLook("tight"),
         fontWeight: 900,
         textTransform: "uppercase",
         letterSpacing: 0,
@@ -51,6 +54,7 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
         fontWeight: 700,
         textTransform: "uppercase",
         letterSpacing: 2,
+        ...shadowPatchForLook("tight"),
       },
     },
   },
@@ -63,6 +67,7 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
         color: "#FFD700",
         strokeColor: "#000000",
         strokeWidth: 3,
+        ...shadowPatchForLook("hard"),
         fontWeight: 900,
         textTransform: "uppercase",
         letterSpacing: 3,
@@ -83,6 +88,7 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
         color: "#00FF88",
         strokeColor: "#00FF88",
         strokeWidth: 1,
+        ...shadowPatchForLook("soft"),
         fontWeight: 700,
         textTransform: "uppercase",
         letterSpacing: 4,
@@ -104,6 +110,7 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
         fontWeight: 400,
         textTransform: "none",
         letterSpacing: 0,
+        ...shadowPatchForLook("soft"),
       },
       motion: {
         entrance: { type: "fade", from: 0, to: 1, duration: 300 },
@@ -121,6 +128,7 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
         color: "#FFFFFF",
         strokeColor: "#FF0000",
         strokeWidth: 2,
+        ...shadowPatchForLook("hard"),
         fontWeight: 900,
         textTransform: "uppercase",
         letterSpacing: 1,
@@ -143,6 +151,7 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
         textTransform: "none",
         letterSpacing: 0,
         strokeWidth: 0,
+        ...shadowPatchForLook("none"),
       },
       motion: {
         entrance: { type: "fade", from: 0, to: 1, duration: 200 },
@@ -158,6 +167,81 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
 // richer bundle instead of just style+motion, so there's one list, not two.
 const CHOREOGRAPHED_PRESETS = new Set(["Hormozi", "MrBeast", "Clean", "Neon"]);
 
+/** The patch a card actually applies — for the choreographed names that is the
+ * choreography bundle's `global`, not the card's own style entry, so the "is
+ * this active" test and the click can't disagree about what was applied. */
+function presetPatch(
+  name: string,
+  style: Partial<GlobalStyle>
+): Partial<GlobalStyle> {
+  return CHOREOGRAPHED_PRESETS.has(name)
+    ? resolveChoreography(name).global
+    : style;
+}
+
+/** Every field of `expected` is present with the same value in `actual`. Used
+ * one level deep because that's how a preset is applied: `mergeGlobalStyle`
+ * merges `style`/`transform` key by key and replaces `motion` wholesale, so
+ * "active" means "nothing this preset set has since been changed by hand" —
+ * which is why clicking a card lights it up and editing the font in the
+ * Inspector puts it back out. */
+function isSubsetOf(expected: object, actual: unknown): boolean {
+  if (typeof actual !== "object" || actual === null) return false;
+  const wanted = expected as Record<string, unknown>;
+  const current = actual as Record<string, unknown>;
+  for (const key of Object.keys(wanted)) {
+    const want = wanted[key];
+    if (want === undefined) continue;
+    if (current[key] !== want) return false;
+  }
+  return true;
+}
+
+function isPresetActive(
+  globalStyle: GlobalStyle,
+  patch: Partial<GlobalStyle>
+): boolean {
+  if (patch.style && !isSubsetOf(patch.style, globalStyle.style)) return false;
+  if (patch.transform && !isSubsetOf(patch.transform, globalStyle.transform))
+    return false;
+  if (patch.motion) {
+    const motion = globalStyle.motion as Record<string, unknown>;
+    for (const [phase, recipe] of Object.entries(patch.motion)) {
+      if (!isSubsetOf(recipe as Record<string, unknown>, motion[phase]))
+        return false;
+    }
+  }
+  return true;
+}
+
+/** How many fields a patch pins down — used to break ties so the most specific
+ * match wins (a custom preset saved off a built-in one would otherwise light
+ * up alongside it). */
+function patchFieldCount(patch: Partial<GlobalStyle>): number {
+  let n = Object.keys(patch.style ?? {}).length;
+  for (const recipe of Object.values(patch.motion ?? {})) {
+    n += Object.keys(recipe ?? {}).length;
+  }
+  return n + Object.keys(patch.transform ?? {}).length;
+}
+
+function pickActivePresetName(
+  globalStyle: GlobalStyle,
+  candidates: { name: string; patch: Partial<GlobalStyle> }[]
+): string | null {
+  let active: string | null = null;
+  let best = -1;
+  for (const { name, patch } of candidates) {
+    if (!isPresetActive(globalStyle, patch)) continue;
+    const n = patchFieldCount(patch);
+    if (n > best) {
+      active = name;
+      best = n;
+    }
+  }
+  return active;
+}
+
 export default function Presets() {
   const applyPreset = useEditorStore((s) => s.applyPreset);
   const applyChoreography = useEditorStore((s) => s.applyChoreography);
@@ -165,6 +249,18 @@ export default function Presets() {
   const [customPresets, setCustomPresets] = useState(loadCustomPresets);
   const [presetName, setPresetName] = useState("");
   const [savedMsg, setSavedMsg] = useState("");
+
+  const activePresetName = useMemo(
+    () =>
+      pickActivePresetName(globalStyle, [
+        ...presets.map((p) => ({
+          name: p.name,
+          patch: presetPatch(p.name, p.style),
+        })),
+        ...customPresets.map((p) => ({ name: p.name, patch: p.style })),
+      ]),
+    [globalStyle, customPresets]
+  );
 
   const savePreset = useCallback(() => {
     const name = presetName.trim();
@@ -192,26 +288,39 @@ export default function Presets() {
     <div className="flex-1 overflow-y-auto p-4">
       <h3 className="text-sm font-semibold text-white mb-3">Presets</h3>
       <div className="space-y-2">
-        {presets.map((preset) => (
-          <button
-            key={preset.name}
-            onClick={() =>
-              CHOREOGRAPHED_PRESETS.has(preset.name)
-                ? applyChoreography(resolveChoreography(preset.name))
-                : applyPreset(preset.style)
-            }
-            className="w-full text-left px-3 py-2.5 bg-zinc-700 hover:bg-zinc-600 rounded-lg transition-colors group"
-          >
-            <span className="text-sm text-white group-hover:text-[#00FF66] transition-colors">
-              {preset.name}
-            </span>
-            <PresetPreview style={preset.style.style} />
-            <p className="text-[10px] text-zinc-500 mt-1 truncate">
-              {preset.style.style?.fontFamily?.split(",")[0]} ·{" "}
-              {preset.style.style?.fontSize}px
-            </p>
-          </button>
-        ))}
+        {presets.map((preset) => {
+          const active = activePresetName === preset.name;
+          return (
+            <button
+              key={preset.name}
+              onClick={() =>
+                CHOREOGRAPHED_PRESETS.has(preset.name)
+                  ? applyChoreography(resolveChoreography(preset.name))
+                  : applyPreset(preset.style)
+              }
+              aria-pressed={active}
+              className={presetCardClasses(active)}
+            >
+              <span className="flex items-center justify-between gap-2">
+                <span
+                  className={`text-sm transition-colors ${
+                    active
+                      ? "text-[#00FF66]"
+                      : "text-white group-hover:text-[#00FF66]"
+                  }`}
+                >
+                  {preset.name}
+                </span>
+                {active && <ActiveBadge />}
+              </span>
+              <PresetPreview style={preset.style.style} />
+              <p className="text-[10px] text-zinc-500 mt-1 truncate">
+                {preset.style.style?.fontFamily?.split(",")[0]} ·{" "}
+                {preset.style.style?.fontSize}px
+              </p>
+            </button>
+          );
+        })}
       </div>
 
       {customPresets.length > 0 && (
@@ -220,32 +329,45 @@ export default function Presets() {
             Your Presets
           </h3>
           <div className="space-y-2">
-            {customPresets.map((preset) => (
-              <div
-                key={preset.name}
-                className="relative group rounded-lg"
-              >
-                <button
-                  onClick={() => applyPreset(preset.style)}
-                  className="w-full text-left px-3 py-2.5 bg-zinc-700 hover:bg-zinc-600 rounded-lg transition-colors"
+            {customPresets.map((preset) => {
+              const active = activePresetName === preset.name;
+              return (
+                <div
+                  key={preset.name}
+                  className="relative group rounded-lg"
                 >
-                  <span className="text-sm text-white group-hover:text-[#00FF66] transition-colors">
-                    {preset.name}
-                  </span>
-                  <PresetPreview style={preset.style.style} />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deletePreset(preset.name);
-                  }}
-                  title={`Delete "${preset.name}"`}
-                  className="absolute top-1.5 right-1.5 w-6 h-6 flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
+                  <button
+                    onClick={() => applyPreset(preset.style)}
+                    aria-pressed={active}
+                    className={presetCardClasses(active, "pr-8")}
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span
+                        className={`text-sm transition-colors ${
+                          active
+                            ? "text-[#00FF66]"
+                            : "text-white group-hover:text-[#00FF66]"
+                        }`}
+                      >
+                        {preset.name}
+                      </span>
+                      {active && <ActiveBadge />}
+                    </span>
+                    <PresetPreview style={preset.style.style} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deletePreset(preset.name);
+                    }}
+                    title={`Delete "${preset.name}"`}
+                    className="absolute top-1.5 right-1.5 w-6 h-6 flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded"
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </>
       )}
@@ -523,6 +645,25 @@ function SfxControl() {
   );
 }
 
+function presetCardClasses(active: boolean, extra = ""): string {
+  return `
+    w-full text-left px-3 py-2.5 rounded-lg transition-colors group ${extra}
+    ${
+      active
+        ? "bg-[#00FF66]/10 border border-[#00FF66]/60"
+        : "bg-zinc-700 border border-transparent hover:bg-zinc-600"
+    }
+  `;
+}
+
+function ActiveBadge() {
+  return (
+    <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-[#00FF66] bg-[#00FF66]/15 rounded px-1.5 py-0.5">
+      Active
+    </span>
+  );
+}
+
 function PresetPreview({ style }: { style?: Partial<WordStyle> }) {
   const styleFontSize = style?.fontSize || 48;
   const previewFontSize = 20;
@@ -539,11 +680,10 @@ function PresetPreview({ style }: { style?: Partial<WordStyle> }) {
     WebkitTextStroke: style?.strokeWidth
       ? `${(style.strokeWidth * scale).toFixed(1)}px ${style.strokeColor || "#000"}`
       : undefined,
-    textShadow: style?.shadowColor
-      ? `${(style.shadowOffsetX || 0) * scale}px ${
-          (style.shadowOffsetY || 2) * scale
-        }px ${(style.shadowBlur || 4) * scale}px ${style.shadowColor}`
-      : undefined,
+    // Rendered from the same resolver the preview and export use, so the
+    // thumbnail can't advertise a shadow the applied preset doesn't have (it
+    // used to invent a 2px offset that no preset actually carried).
+    textShadow: cssShadow(resolveShadowSpec(style ?? {}), scale),
     color: style?.color,
     fontSize: `${previewFontSize}px`,
     lineHeight: 1.1,
@@ -617,7 +757,8 @@ function MusicControl() {
               max={100}
               value={Math.round(music.volume * 100)}
               onChange={(e) => setMusicVolume(Number(e.target.value) / 100)}
-              className="w-full accent-[#00FF66]"
+              className="w-full"
+              style={sliderFillStyle(Math.round(music.volume * 100), 0, 100)}
             />
           </div>
 

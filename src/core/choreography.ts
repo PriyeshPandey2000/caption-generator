@@ -1,4 +1,5 @@
 import { GlobalStyle, SfxSettings } from "./types";
+import { shadowPatchForLook } from "./shadow";
 
 export interface ChoreographyBundle {
   global: Partial<GlobalStyle>;
@@ -24,8 +25,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         color: "#FFFFFF",
         strokeColor: "#000000",
         strokeWidth: 1,
-        shadowColor: "rgba(0,0,0,0.5)",
-        shadowBlur: 4,
+        ...shadowPatchForLook("tight"),
         fontWeight: 900,
         textTransform: "uppercase",
         letterSpacing: 0,
@@ -63,8 +63,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         color: "#FFFFFF",
         strokeColor: "#FFD700",
         strokeWidth: 4,
-        shadowColor: "rgba(0,0,0,0.6)",
-        shadowBlur: 6,
+        ...shadowPatchForLook("hard"),
         fontWeight: 900,
         textTransform: "uppercase",
         letterSpacing: 4,
@@ -102,6 +101,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         color: "#FFFFFF",
         strokeColor: "#FF0000",
         strokeWidth: 2,
+        ...shadowPatchForLook("hard"),
         fontWeight: 900,
         textTransform: "uppercase",
         letterSpacing: 1,
@@ -135,6 +135,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         fontSize: 42,
         color: "#FFFFFF",
         strokeWidth: 2,
+        ...shadowPatchForLook("tight"),
         fontWeight: 700,
         textTransform: "none",
         letterSpacing: 0,
@@ -158,6 +159,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         color: "#F5F5F0",
         strokeColor: "rgba(0,0,0,0.8)",
         strokeWidth: 1,
+        ...shadowPatchForLook("soft"),
         fontWeight: 400,
         textTransform: "none",
         letterSpacing: 1,
@@ -181,6 +183,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         color: "#FFFFFF",
         strokeColor: "#FF8C00",
         strokeWidth: 3,
+        ...shadowPatchForLook("hard"),
         fontWeight: 700,
         textTransform: "none",
         letterSpacing: 1,
@@ -216,6 +219,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         color: "#00FF88",
         strokeColor: "#00FF88",
         strokeWidth: 1,
+        ...shadowPatchForLook("soft"),
         fontWeight: 700,
         textTransform: "uppercase",
         letterSpacing: 4,
@@ -238,6 +242,7 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         fontSize: 40,
         color: "#FFFFFF",
         strokeWidth: 1,
+        ...shadowPatchForLook("soft"),
         fontWeight: 500,
         textTransform: "none",
         letterSpacing: 0,
