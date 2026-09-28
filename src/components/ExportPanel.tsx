@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { wordsToSRT } from "@/core/captions";
+import type { FFmpeg as FFmpegType } from "@ffmpeg/ffmpeg";
 
 const MAX_EXPORT_DURATION_SEC = 90;
 const MAX_EXPORT_WIDTH = 1280;
@@ -37,9 +38,13 @@ export default function ExportPanel() {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
+  const maxWordsPerGroup = useEditorStore(
+    (s) => s.project.globalStyle.maxWordsPerGroup
+  );
+
   const exportSRT = useCallback(() => {
     if (!transcription) return;
-    const srt = wordsToSRT(transcription.words);
+    const srt = wordsToSRT(transcription.words, maxWordsPerGroup);
     const blob = new Blob([srt], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -47,11 +52,11 @@ export default function ExportPanel() {
     a.download = "captions.srt";
     a.click();
     URL.revokeObjectURL(url);
-  }, [transcription]);
+  }, [transcription, maxWordsPerGroup]);
 
   const exportVTT = useCallback(() => {
     if (!transcription) return;
-    const srt = wordsToSRT(transcription.words);
+    const srt = wordsToSRT(transcription.words, maxWordsPerGroup);
     const vtt = "WEBVTT\n\n" + srt.replace(/,/g, ".");
     const blob = new Blob([vtt], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -60,13 +65,14 @@ export default function ExportPanel() {
     a.download = "captions.vtt";
     a.click();
     URL.revokeObjectURL(url);
-  }, [transcription]);
+  }, [transcription, maxWordsPerGroup]);
 
   const exportMP4 = useCallback(async () => {
     if (!transcription) return;
     setIsExporting(true);
     setProgress("Loading ffmpeg.wasm...");
 
+    let ffmpeg: FFmpegType | null = null;
     try {
       const state = useEditorStore.getState();
       const videoUrl = state.videoUrl;
@@ -89,7 +95,7 @@ export default function ExportPanel() {
       const { FFmpeg } = await import("@ffmpeg/ffmpeg");
       const { fetchFile } = await import("@ffmpeg/util");
 
-      const ffmpeg = new FFmpeg();
+      ffmpeg = new FFmpeg();
       // Keep a rolling buffer of ffmpeg's stderr so the audio-presence probe
       // below can read the input stream dump back (bound so a long encode's
       // logs can't grow memory without limit).
@@ -284,9 +290,12 @@ export default function ExportPanel() {
           : ["-c:v", "copy"]),
         "-c:a", "aac",
         "-b:a", "128k",
-        // Bound output to the styled video length (also stops a stream_loop'd
+        // Bound output to the styled video's length (also stops a stream_loop'd
         // music bed from running past the end of the clip).
-        "-shortest",
+        // Not `-shortest`: that ends the file at the *shortest* input, so a
+        // source whose audio is even slightly shorter than its video silently
+        // truncates the tail of the user's clip.
+        "-t", meta.duration.toFixed(3),
         "output.mp4"
       );
 
@@ -299,7 +308,13 @@ export default function ExportPanel() {
               ? "Mixing music & finalizing..."
               : "Finalizing..."
       );
-      await ffmpeg.exec(args);
+      // exec() resolves with ffmpeg's exit status; a nonzero code means the
+      // encode failed and output.mp4 may be missing or truncated. Checking it
+      // stops a broken file from being read back and handed to the user.
+      const exitCode = await ffmpeg.exec(args);
+      if (exitCode !== 0) {
+        throw new Error(`encoder exited with code ${exitCode}`);
+      }
 
       setProgress("Downloading...");
       const data = (await ffmpeg.readFile("output.mp4")) as Uint8Array;
@@ -315,6 +330,14 @@ export default function ExportPanel() {
     } catch (err) {
       setProgress(`Error: ${err}`);
     } finally {
+      // Each FFmpeg() owns a WebAssembly core plus its virtual FS. Without
+      // terminate() those survive the render and a second export starts on top
+      // of them, so repeated exports grow the heap until the tab dies.
+      try {
+        ffmpeg?.terminate();
+      } catch (err) {
+        console.error("[ffmpeg] terminate failed", err);
+      }
       setTimeout(() => {
         setIsExporting(false);
         setProgress("");

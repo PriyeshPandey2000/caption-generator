@@ -20,7 +20,11 @@ export function groupWordsIntoCaptions(
 
     if (isNewLine || isLastWord) {
       groups.push({
-        id: uuid(),
+        // Derived from the first word rather than a fresh uuid: re-grouping runs
+        // on every retime and on maxWordsPerGroup changes, and groupLayouts is
+        // keyed by group id. A random id here would orphan the user's
+        // dragged/scaled caption position on the next regroup.
+        id: `group-${currentWords[0].id}`,
         wordIds: currentWords.map((w) => w.id),
         start: currentWords[0].start,
         end: currentWords[currentWords.length - 1].end,
@@ -131,25 +135,25 @@ export function formatTime(seconds: number): string {
 }
 
 export function wordsToSRT(words: Word[], groupSize: number = 4): string {
-  const groups: Word[][] = [];
-  let current: Word[] = [];
+  // Reuse the same grouping the editor renders (which also splits on the 3s
+  // gap rule), so the exported sidecar matches the burned-in captions instead
+  // of emitting fixed-size blocks that ignore the user's maxWordsPerGroup.
+  const byId = new Map(words.map((w) => [w.id, w]));
 
-  for (const word of words) {
-    current.push(word);
-    if (current.length >= groupSize) {
-      groups.push(current);
-      current = [];
-    }
-  }
-  if (current.length > 0) groups.push(current);
-
-  return groups
+  return groupWordsIntoCaptions(words, groupSize)
+    .map((group) =>
+      group.wordIds
+        .map((id) => byId.get(id))
+        .filter((w): w is Word => !!w)
+    )
     .map((group, i) => {
+      if (group.length === 0) return null;
       const start = formatSRTTime(group[0].start);
       const end = formatSRTTime(group[group.length - 1].end);
       const text = group.map((w) => w.text).join(" ");
       return `${i + 1}\n${start} --> ${end}\n${text}`;
     })
+    .filter((c): c is string => c !== null)
     .join("\n\n");
 }
 

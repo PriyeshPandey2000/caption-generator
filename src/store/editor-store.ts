@@ -74,6 +74,9 @@ interface EditorState {
 
   updateWordStyle: (wordId: string, style: Partial<WordStyle>) => void;
   updateWordMotion: (wordId: string, motion: Partial<WordMotion>) => void;
+  applyStyleToAllWords: (style: Partial<WordStyle>) => void;
+  applyMotionToAllWords: (motion: Partial<WordMotion>) => void;
+  resetAllWordOverrides: () => void;
   updateWordTransform: (wordId: string, transform: Partial<WordTransform>) => void;
   updateWordText: (wordId: string, text: string) => void;
   updateGlobalStyle: (style: Partial<GlobalStyle>) => void;
@@ -183,6 +186,10 @@ interface DocSnapshot {
     composition: Composition;
     speakerStyles: Record<string, Partial<WordStyle>>;
     speakerMotions: Record<string, Partial<WordMotion>>;
+    // Part of the undoable document: a dictionary correction rewrites word text
+    // (transcription is snapshotted), so leaving the dictionary out made undo
+    // rewind the caption edits while keeping the correction that caused them.
+    dictionary: DictionaryEntry[];
   };
   groupLayouts: Record<string, GroupLayout>;
 }
@@ -222,6 +229,7 @@ function cloneDoc(s: EditorState): DocSnapshot {
         composition: s.project.composition,
         speakerStyles: s.project.speakerStyles,
         speakerMotions: s.project.speakerMotions,
+        dictionary: s.project.dictionary,
       },
       groupLayouts: s.groupLayouts,
     })
@@ -239,6 +247,9 @@ function docChanged(curr: EditorState, prev: EditorState): boolean {
     curr.project.composition !== prev.project.composition ||
     curr.project.speakerStyles !== prev.project.speakerStyles ||
     curr.project.speakerMotions !== prev.project.speakerMotions ||
+    // Without this a dictionary-only edit recorded no history, so the next undo
+    // rewound an unrelated earlier action instead of the correction.
+    curr.project.dictionary !== prev.project.dictionary ||
     curr.groupLayouts !== prev.groupLayouts
   );
 }
@@ -373,6 +384,59 @@ export const useEditorStore = create<EditorState>((set) => ({
         w.id === wordId
           ? { ...w, animation: { ...w.animation, ...motion } }
           : w
+      );
+      return {
+        project: {
+          ...s.project,
+          transcription: { ...s.project.transcription, words },
+        },
+      };
+    }),
+
+  // "Apply to all" writes the same override onto every word, so a look tuned
+  // on one block can be pushed across the whole transcript in one edit. The
+  // patch is the same partial the per-word action takes, and it merges the same
+  // way — an explicit `undefined` (how the "None" shadow look clears fields)
+  // still lands, because spread copies the key.
+  applyStyleToAllWords: (style) =>
+    set((s) => {
+      if (!s.project.transcription) return s;
+      const words = s.project.transcription.words.map((w) => ({
+        ...w,
+        style: { ...w.style, ...style },
+      }));
+      return {
+        project: {
+          ...s.project,
+          transcription: { ...s.project.transcription, words },
+        },
+      };
+    }),
+
+  applyMotionToAllWords: (motion) =>
+    set((s) => {
+      if (!s.project.transcription) return s;
+      const words = s.project.transcription.words.map((w) => ({
+        ...w,
+        animation: { ...w.animation, ...motion },
+      }));
+      return {
+        project: {
+          ...s.project,
+          transcription: { ...s.project.transcription, words },
+        },
+      };
+    }),
+
+  // The mirror of "apply to all": strip every per-word style and animation so
+  // the whole transcript falls back to the global style again.
+  resetAllWordOverrides: () =>
+    set((s) => {
+      if (!s.project.transcription) return s;
+      const words = s.project.transcription.words.map((w) =>
+        w.style === undefined && w.animation === undefined
+          ? w
+          : { ...w, style: undefined, animation: undefined }
       );
       return {
         project: {
@@ -1392,7 +1456,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         isTranscribing: false,
         error: null,
       },
-      groupLayouts: data.groupLayouts,
+      groupLayouts: data.groupLayouts ?? {},
       currentTime: 0,
       selectedWordIds: [],
       selectedCaptionGroupId: null,

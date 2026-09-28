@@ -23,9 +23,28 @@ export default function Inspector() {
   const speakerMotions = useEditorStore((s) => s.project.speakerMotions);
   const updateWordStyle = useEditorStore((s) => s.updateWordStyle);
   const updateWordMotion = useEditorStore((s) => s.updateWordMotion);
+  const applyStyleToAllWords = useEditorStore((s) => s.applyStyleToAllWords);
+  const applyMotionToAllWords = useEditorStore((s) => s.applyMotionToAllWords);
   const updateGlobalStyle = useEditorStore((s) => s.updateGlobalStyle);
   const resetWordStyle = useEditorStore((s) => s.resetWordStyle);
   const resetWordMotion = useEditorStore((s) => s.resetWordMotion);
+  const resetAllWordOverrides = useEditorStore((s) => s.resetAllWordOverrides);
+
+  // Whether the Style/Motion controls below edit just the selected word or
+  // every word in the transcript. Defaults to the single word so a stray
+  // slider drag can never restyle the whole video; the toggle is the only way
+  // to widen it, and it resets to "This word" whenever the selection changes.
+  const [scope, setScope] = useState<"word" | "all">("word");
+  const [scopeForSelection, setScopeForSelection] = useState<string | null>(
+    null
+  );
+  const selectionKey = selectedWordIds.join(",");
+  const effectiveScope =
+    scopeForSelection === selectionKey ? scope : "word";
+  const setEffectiveScope = (next: "word" | "all") => {
+    setScope(next);
+    setScopeForSelection(selectionKey);
+  };
 
   const selectedWord =
     selectedWordIds.length === 1 && transcription
@@ -77,33 +96,56 @@ export default function Inspector() {
           </h3>
           <button
             onClick={() => {
-              for (const w of selectedWords) {
-                resetWordStyle(w.id);
-                resetWordMotion(w.id);
+              if (effectiveScope === "all") {
+                resetAllWordOverrides();
+              } else {
+                for (const w of selectedWords) {
+                  resetWordStyle(w.id);
+                  resetWordMotion(w.id);
+                }
               }
             }}
             className="text-xs text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600"
           >
-            Reset all
+            {effectiveScope === "all" ? "Reset all" : "Reset selected"}
           </button>
         </div>
 
+        <ScopeToggle
+          scope={effectiveScope}
+          onChange={setEffectiveScope}
+          wordCount={transcription?.words.length ?? 0}
+          selectionCount={selectedWords.length}
+        />
+
         <h4 className="text-xs font-medium text-zinc-400 mb-2">
-          Style Override (applies to all {selectedWords.length})
+          {effectiveScope === "all"
+            ? "Style — all words"
+            : `Style Override (applies to all ${selectedWords.length})`}
         </h4>
         <StyleControls
           style={resolveWordStyle(first, speakerStyles, globalStyle)}
           onChange={(s) => {
+            if (effectiveScope === "all") {
+              applyStyleToAllWords(s);
+              return;
+            }
             for (const w of selectedWords) updateWordStyle(w.id, s);
           }}
         />
 
         <h4 className="text-xs font-medium text-zinc-400 mt-6 mb-2">
-          Motion Override (applies to all)
+          {effectiveScope === "all"
+            ? "Motion — all words"
+            : "Motion Override (applies to all)"}
         </h4>
         <MotionControls
           motion={resolveWordMotion(first, speakerMotions, globalStyle)}
           onChange={(m) => {
+            if (effectiveScope === "all") {
+              applyMotionToAllWords(m);
+              return;
+            }
             for (const w of selectedWords) updateWordMotion(w.id, m);
           }}
         />
@@ -144,32 +186,53 @@ export default function Inspector() {
         <div className="flex gap-1">
           <button
             onClick={() => {
-              resetWordStyle(selectedWord.id);
-              resetWordMotion(selectedWord.id);
+              if (effectiveScope === "all") {
+                resetAllWordOverrides();
+              } else {
+                resetWordStyle(selectedWord.id);
+                resetWordMotion(selectedWord.id);
+              }
             }}
             className="text-xs text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600"
           >
-            Reset
+            {effectiveScope === "all" ? "Reset all" : "Reset"}
           </button>
         </div>
       </div>
 
-      <p className="text-xs text-zinc-500 mb-4">
+      <p className="text-xs text-zinc-500 mb-3">
         {selectedWord.start.toFixed(2)}s — {selectedWord.end.toFixed(2)}s
       </p>
 
-      <h4 className="text-xs font-medium text-zinc-400 mb-2">Style Override</h4>
+      <ScopeToggle
+        scope={effectiveScope}
+        onChange={setEffectiveScope}
+        wordCount={transcription?.words.length ?? 0}
+        selectionCount={1}
+      />
+
+      <h4 className="text-xs font-medium text-zinc-400 mb-2">
+        {effectiveScope === "all" ? "Style — all words" : "Style Override"}
+      </h4>
       <StyleControls
         style={resolveWordStyle(selectedWord, speakerStyles, globalStyle)}
-        onChange={(s) => updateWordStyle(selectedWord.id, s)}
+        onChange={(s) =>
+          effectiveScope === "all"
+            ? applyStyleToAllWords(s)
+            : updateWordStyle(selectedWord.id, s)
+        }
       />
 
       <h4 className="text-xs font-medium text-zinc-400 mt-6 mb-2">
-        Motion Override
+        {effectiveScope === "all" ? "Motion — all words" : "Motion Override"}
       </h4>
       <MotionControls
         motion={resolveWordMotion(selectedWord, speakerMotions, globalStyle)}
-        onChange={(m) => updateWordMotion(selectedWord.id, m)}
+        onChange={(m) =>
+          effectiveScope === "all"
+            ? applyMotionToAllWords(m)
+            : updateWordMotion(selectedWord.id, m)
+        }
       />
 
       <h4 className="text-xs font-medium text-zinc-400 mt-6 mb-2">
@@ -273,6 +336,62 @@ const SFX_NAMES: SfxName[] = [
   "bass-hit",
   "record-scratch",
 ];
+
+/**
+ * Chooses how wide the Style / Motion controls below act: the words currently
+ * selected, or every word in the transcript. Selecting a different set of words
+ * drops back to the selection (the parent re-derives the scope from it), so
+ * widening the blast radius is always a deliberate act for the block in view
+ * rather than a setting that silently follows the user around the timeline.
+ */
+function ScopeToggle({
+  scope,
+  onChange,
+  wordCount,
+  selectionCount,
+}: {
+  scope: "word" | "all";
+  onChange: (scope: "word" | "all") => void;
+  wordCount: number;
+  /** How many words are selected; 1 for the single-word panel. */
+  selectionCount: number;
+}) {
+  const options: { id: "word" | "all"; label: string }[] = [
+    {
+      id: "word",
+      label: selectionCount > 1 ? `${selectionCount} selected` : "This word",
+    },
+    { id: "all", label: `All ${wordCount} words` },
+  ];
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-zinc-500">Apply changes to</span>
+        {scope === "all" && (
+          <span className="text-[10px] text-[#00FF66]">Whole transcript</span>
+        )}
+      </div>
+      <div className="flex gap-1">
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            aria-pressed={scope === opt.id}
+            onClick={() => onChange(opt.id)}
+            className={`flex-1 h-7 rounded text-[10px] font-medium transition-colors ${
+              scope === opt.id
+                ? "bg-[#00FF66] text-black"
+                : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-white"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // A caption shadow is a look, not a blur number: the softness only reads well
 // when the offset and opacity move with it, which is why the four raw fields

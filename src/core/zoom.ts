@@ -58,7 +58,12 @@ export function buildCameraTimeline(
 export function mergeOverlapping(events: CameraEvent[]): CameraEvent[] {
   if (events.length === 0) return [];
 
-  const sorted = [...events].sort((a, b) => a.start - b.start);
+  // Copy before merging: the merge widens `last` in place, and callers pass
+  // live objects out of the store, so mutating them would edit current state
+  // behind the store's back and corrupt the undo baseline.
+  const sorted = events
+    .map((e) => ({ ...e }))
+    .sort((a, b) => a.start - b.start);
   const merged: CameraEvent[] = [sorted[0]];
 
   for (let i = 1; i < sorted.length; i++) {
@@ -126,7 +131,7 @@ function easeOutCubic(t: number): number {
 
 // Slider UI uses discrete levels 1–5; choreography bundles use a continuous
 // 0–1 fraction. Both must land on the same maxScale ceiling (1.6 at full
-// strength) or presets like MrBeast (intensity: 0.7) end up computing an
+// strength) or presets like MrBeast (intensity: 0.85) end up computing an
 // almost-invisible zoom instead of the punchy one the preset promises.
 export function sliderIntensityToScale(level: number): number {
   return 1.0 + level * 0.12;
