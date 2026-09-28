@@ -354,7 +354,21 @@ export default function VideoPreview() {
               ? "aspect-[9/16] max-w-full ring-1 ring-white/15 cursor-grab active:cursor-grabbing select-none"
               : "w-full"
           }`}
-          style={cropActive ? { touchAction: "none" } : undefined}
+          // Sized from the same displayedVideoWidth/Height the caption overlay
+          // uses below, not left to aspect-ratio + max-w-full + h-full: when
+          // the container is narrower than the 9:16 ratio wants at full
+          // height, max-w-full clamps the width but CSS leaves the (already
+          // definite) h-full height alone, so the box ends up taller than its
+          // own 9:16 shape and drifts out of sync with the overlay's rect.
+          style={
+            cropActive
+              ? {
+                  touchAction: "none",
+                  width: displayedVideoWidth || undefined,
+                  height: displayedVideoHeight || undefined,
+                }
+              : undefined
+          }
         >
           <div
             ref={zoomRef}
@@ -412,7 +426,6 @@ export default function VideoPreview() {
               they line up with the export frame under letterboxing. Sits
               outside zoomRef: the export zooms the video, not the captions. */}
           <div
-            className="pointer-events-none"
             style={{
               position: "absolute",
               left: "50%",
@@ -422,8 +435,12 @@ export default function VideoPreview() {
               height: displayedVideoHeight || undefined,
             }}
           >
+            {/* pointer-events-none on the gradient only, not this wrapper:
+                CaptionOverlay covers the same rect and needs real clicks to
+                reach its own onMouseDown for marquee-select, click-to-deselect,
+                and background-click play/pause. */}
             <div
-              className="absolute inset-x-0 bottom-0"
+              className="absolute inset-x-0 bottom-0 pointer-events-none"
               style={{
                 height: "35%",
                 background:

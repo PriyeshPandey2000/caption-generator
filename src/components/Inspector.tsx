@@ -15,6 +15,31 @@ import {
 } from "@/core/shadow";
 import { sliderFillStyle } from "./rangeFill";
 
+// MotionControls always emits a full per-phase recipe merged against the word
+// it's currently showing (see its updateRecipe), not just the field the user
+// touched — correct when applying to that one word, but wrong for "all
+// words": it would stamp the displayed word's untouched fields (type, easing,
+// ...) over every other word's own recipe. Diffing the emitted recipe against
+// the one MotionControls was rendered with recovers just what changed, which
+// applyMotionToAllWords can safely layer onto each word's own phase.
+function diffWordMotion(
+  base: WordMotion,
+  next: Partial<WordMotion>
+): Partial<Record<keyof WordMotion, Partial<AnimationRecipe>>> {
+  const diff: Partial<Record<keyof WordMotion, Partial<AnimationRecipe>>> = {};
+  for (const phase of Object.keys(next) as (keyof WordMotion)[]) {
+    const nextRecipe = next[phase] as Record<string, unknown> | undefined;
+    if (!nextRecipe) continue;
+    const baseRecipe = base[phase] as Record<string, unknown> | undefined;
+    const changed: Record<string, unknown> = {};
+    for (const field of Object.keys(nextRecipe)) {
+      if (nextRecipe[field] !== baseRecipe?.[field]) changed[field] = nextRecipe[field];
+    }
+    diff[phase] = changed as Partial<AnimationRecipe>;
+  }
+  return diff;
+}
+
 export default function Inspector() {
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
   const transcription = useEditorStore((s) => s.project.transcription);
@@ -33,18 +58,18 @@ export default function Inspector() {
   // Whether the Style/Motion controls below edit just the selected word or
   // every word in the transcript. Defaults to the single word so a stray
   // slider drag can never restyle the whole video; the toggle is the only way
-  // to widen it, and it resets to "This word" whenever the selection changes.
+  // to widen it, and it resets to "This word" on every selection change —
+  // including returning to a selection that was previously widened to "all" —
+  // so widening scope is always a fresh, deliberate choice.
   const [scope, setScope] = useState<"word" | "all">("word");
-  const [scopeForSelection, setScopeForSelection] = useState<string | null>(
-    null
-  );
   const selectionKey = selectedWordIds.join(",");
-  const effectiveScope =
-    scopeForSelection === selectionKey ? scope : "word";
-  const setEffectiveScope = (next: "word" | "all") => {
-    setScope(next);
-    setScopeForSelection(selectionKey);
-  };
+  const [trackedSelectionKey, setTrackedSelectionKey] = useState(selectionKey);
+  if (selectionKey !== trackedSelectionKey) {
+    setTrackedSelectionKey(selectionKey);
+    setScope("word");
+  }
+  const effectiveScope = scope;
+  const setEffectiveScope = setScope;
 
   const selectedWord =
     selectedWordIds.length === 1 && transcription
@@ -143,7 +168,9 @@ export default function Inspector() {
           motion={resolveWordMotion(first, speakerMotions, globalStyle)}
           onChange={(m) => {
             if (effectiveScope === "all") {
-              applyMotionToAllWords(m);
+              applyMotionToAllWords(
+                diffWordMotion(resolveWordMotion(first, speakerMotions, globalStyle), m)
+              );
               return;
             }
             for (const w of selectedWords) updateWordMotion(w.id, m);
@@ -230,7 +257,9 @@ export default function Inspector() {
         motion={resolveWordMotion(selectedWord, speakerMotions, globalStyle)}
         onChange={(m) =>
           effectiveScope === "all"
-            ? applyMotionToAllWords(m)
+            ? applyMotionToAllWords(
+                diffWordMotion(resolveWordMotion(selectedWord, speakerMotions, globalStyle), m)
+              )
             : updateWordMotion(selectedWord.id, m)
         }
       />

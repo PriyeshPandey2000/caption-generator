@@ -3,6 +3,7 @@ import {
   Project,
   WordStyle,
   WordMotion,
+  AnimationRecipe,
   WordTransform,
   GlobalStyle,
   TranscriptionResult,
@@ -75,7 +76,11 @@ interface EditorState {
   updateWordStyle: (wordId: string, style: Partial<WordStyle>) => void;
   updateWordMotion: (wordId: string, motion: Partial<WordMotion>) => void;
   applyStyleToAllWords: (style: Partial<WordStyle>) => void;
-  applyMotionToAllWords: (motion: Partial<WordMotion>) => void;
+  // Per-phase field patches (not full recipes) — see the implementation
+  // comment for why the caller must diff before calling this.
+  applyMotionToAllWords: (
+    motion: Partial<Record<keyof WordMotion, Partial<AnimationRecipe>>>
+  ) => void;
   resetAllWordOverrides: () => void;
   updateWordTransform: (wordId: string, transform: Partial<WordTransform>) => void;
   updateWordText: (wordId: string, text: string) => void;
@@ -413,13 +418,29 @@ export const useEditorStore = create<EditorState>((set) => ({
       };
     }),
 
+  // Takes per-phase field patches, not full recipes: the caller (Inspector)
+  // diffs MotionControls' output against the word it was displaying first, so
+  // only the field the user actually touched arrives here. A shallow
+  // `{...w.animation, ...motion}` would replace each word's whole phase
+  // (type, easing, everything) with that diff, wiping out any word whose
+  // recipe differs from the one the controls happened to be showing.
+  // Deep-merging the patch into each word's own phase preserves the rest.
   applyMotionToAllWords: (motion) =>
     set((s) => {
       if (!s.project.transcription) return s;
-      const words = s.project.transcription.words.map((w) => ({
-        ...w,
-        animation: { ...w.animation, ...motion },
-      }));
+      const phases = Object.keys(motion) as (keyof WordMotion)[];
+      const words = s.project.transcription.words.map((w) => {
+        let animation = w.animation;
+        for (const phase of phases) {
+          const patch = motion[phase];
+          if (!patch) continue;
+          animation = {
+            ...animation,
+            [phase]: { ...animation?.[phase], ...patch },
+          } as Partial<WordMotion>;
+        }
+        return animation === w.animation ? w : { ...w, animation };
+      });
       return {
         project: {
           ...s.project,
