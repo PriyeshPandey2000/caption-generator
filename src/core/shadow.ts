@@ -123,6 +123,16 @@ export function shadowLookOf(style: Partial<WordStyle>): ShadowLookSelection {
 }
 
 /**
+ * The word shown next to the segmented control for a given selection. Keyed off
+ * the selection rather than the resolved spec, because "None" *is* a null spec
+ * — deriving the label from the spec made the control light the None segment
+ * and then caption it "Custom".
+ */
+export function shadowLookHint(selection: ShadowLookSelection): string {
+  return selection === "custom" ? "Custom" : shadowLookById(selection).hint;
+}
+
+/**
  * Writes a look as both the label and the concrete fields, so the label
  * round-trips through save/load and legacy readers still see real values.
  */

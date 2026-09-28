@@ -9,6 +9,7 @@ import {
   alphaOf,
   resolveShadowSpec,
   shadowFineTunePatch,
+  shadowLookHint,
   shadowLookOf,
   shadowPatchForLook,
 } from "@/core/shadow";
@@ -292,10 +293,7 @@ function ShadowControl({
   const spec = resolveShadowSpec(style);
   const alpha = spec ? alphaOf(spec.color) : null;
   const custom = selection === "custom";
-  const activeHint =
-    custom || !spec
-      ? "Custom"
-      : SHADOW_LOOKS.find((l) => l.id === selection)?.hint ?? "Custom";
+  const activeHint = shadowLookHint(selection);
 
   return (
     <div>
