@@ -179,6 +179,7 @@ export default function CaptionOverlay({
 
   const groupBg = globalStyle.style.backgroundColor;
   const hasBg = groupBg && groupBg !== "transparent";
+  const fullWidthBar = hasBg && !!globalStyle.style.backgroundFullWidth;
 
   const yPct = Math.min(MAX_CAPTION_Y, Math.max(MIN_CAPTION_Y, globalStyle.transform.y ?? 80));
   const maxW = globalStyle.style.maxWidth ?? 800;
@@ -255,14 +256,25 @@ export default function CaptionOverlay({
       <div
         ref={wrapperRef}
         className="relative"
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: `${yPct}%`,
-          transform: `translate(-50%, -50%) translate(${layout.x}px, ${layout.y}px)`,
-          width: "max-content",
-          maxWidth: `min(${maxW * scaleFactor}px, 92%)`,
-        }}
+        style={
+          fullWidthBar
+            ? {
+                position: "absolute",
+                left: 0,
+                top: `${yPct}%`,
+                transform: `translate(0, -50%) translate(${layout.x}px, ${layout.y}px)`,
+                width: "100%",
+                maxWidth: "100%",
+              }
+            : {
+                position: "absolute",
+                left: "50%",
+                top: `${yPct}%`,
+                transform: `translate(-50%, -50%) translate(${layout.x}px, ${layout.y}px)`,
+                width: "max-content",
+                maxWidth: `min(${maxW * scaleFactor}px, 92%)`,
+              }
+        }
       >
         <div
           ref={rowRef}
@@ -291,6 +303,7 @@ export default function CaptionOverlay({
           }}
           style={{
             transform: `scale(${layout.scale})`,
+            ...(fullWidthBar ? { width: "100%" } : {}),
             ...(hasBg
               ? {
                   backgroundColor: groupBg,

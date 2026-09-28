@@ -488,7 +488,7 @@ export default function Editor() {
               <div className="relative h-full flex flex-col items-center justify-center gap-6 px-4">
                 <div className="text-center max-w-2xl">
                   <h2 className="font-display text-4xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
-                    Turn{" "}
+                    Captions that make people{" "}
                     <span
                       className="bg-clip-text text-transparent"
                       style={{
@@ -496,22 +496,11 @@ export default function Editor() {
                           "linear-gradient(120deg,#00FF66,#22C55E)",
                       }}
                     >
-                      speech
-                    </span>{" "}
-                    into{" "}
-                    <span
-                      className="bg-clip-text text-transparent"
-                      style={{
-                        backgroundImage:
-                          "linear-gradient(120deg,#00FF66,#22C55E)",
-                      }}
-                    >
-                      animated typography
+                      stop scrolling
                     </span>
                   </h2>
                   <p className="text-sm text-zinc-300 mt-2">
-                    Every aspect customisable — precision | scale | word level.
-                    But you never have to customise anything.
+                    No editing experience needed.
                   </p>
                   <div className="mt-5 w-full max-w-xl">
                     <div className="grid grid-cols-2 gap-2">

@@ -133,6 +133,69 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
     },
   },
   {
+    name: "Classic",
+    style: {
+      style: {
+        fontFamily: "Inter, system-ui, sans-serif",
+        fontSize: 40,
+        color: "#FFFFFF",
+        fontWeight: 500,
+        textTransform: "none",
+        letterSpacing: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.6)",
+        backgroundPadding: 10,
+        backgroundBorderRadius: 0,
+        backgroundFullWidth: true,
+      },
+      motion: {
+        entrance: { type: "fade", from: 0, to: 1, duration: 120 },
+        active: { type: "none" },
+        exit: { type: "fade", from: 1, to: 0, duration: 120 },
+      },
+    },
+  },
+  {
+    name: "Outline",
+    style: {
+      style: {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: 60,
+        color: "transparent",
+        strokeColor: "#FFFFFF",
+        strokeWidth: 3,
+        fontWeight: 900,
+        textTransform: "uppercase",
+        letterSpacing: 1,
+      },
+      motion: {
+        entrance: { type: "fade", from: 0, to: 1, duration: 150 },
+        active: { type: "scale", scaleFrom: 100, scaleTo: 106, duration: 100 },
+        exit: { type: "fade", from: 1, to: 0, duration: 150 },
+      },
+    },
+  },
+  {
+    name: "Boxed",
+    style: {
+      style: {
+        fontFamily: "Inter, system-ui, sans-serif",
+        fontSize: 48,
+        color: "#FFFFFF",
+        fontWeight: 800,
+        textTransform: "uppercase",
+        letterSpacing: 1,
+        backgroundColor: "#000000",
+        backgroundPadding: 8,
+        backgroundBorderRadius: 6,
+      },
+      motion: {
+        entrance: { type: "fade", from: 0, to: 1, duration: 150 },
+        active: { type: "scale", scaleFrom: 100, scaleTo: 100, duration: 100, color: "#00FF66" },
+        exit: { type: "fade", from: 1, to: 0, duration: 150 },
+      },
+    },
+  },
+  {
     name: "Minimal",
     style: {
       style: {
@@ -547,6 +610,19 @@ function PresetPreview({ style }: { style?: Partial<WordStyle> }) {
     color: style?.color,
     fontSize: `${previewFontSize}px`,
     lineHeight: 1.1,
+    backgroundColor:
+      style?.backgroundColor && style.backgroundColor !== "transparent"
+        ? style.backgroundColor
+        : undefined,
+    padding:
+      style?.backgroundColor && style.backgroundColor !== "transparent"
+        ? `${((style.backgroundPadding ?? 6) * scale).toFixed(1)}px ${((style.backgroundPadding ?? 6) * 2 * scale).toFixed(1)}px`
+        : undefined,
+    borderRadius:
+      style?.backgroundColor && style.backgroundColor !== "transparent"
+        ? `${((style.backgroundBorderRadius ?? 8) * scale).toFixed(1)}px`
+        : undefined,
+    ...(style?.backgroundFullWidth ? { width: "100%", textAlign: "center" } : {}),
   };
 
   return (

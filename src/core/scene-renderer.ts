@@ -457,6 +457,7 @@ export function paintCaptionGroup(
   const yPct = Math.min(MAX_CAPTION_Y, Math.max(MIN_CAPTION_Y, globalStyle.transform.y ?? 80));
   const hasBg =
     !!globalStyle.style.backgroundColor && globalStyle.style.backgroundColor !== "transparent";
+  const fullWidthBar = hasBg && !!globalStyle.style.backgroundFullWidth;
   const padVertical = (globalStyle.style.backgroundPadding ?? 6) * scaleFactor;
   const padHorizontal = padVertical * 2;
   const radius = (globalStyle.style.backgroundBorderRadius ?? 8) * scaleFactor;
@@ -468,11 +469,28 @@ export function paintCaptionGroup(
   const centerY = outH * (yPct / 100) + (groupLayout.y ?? 0) * scaleFactor;
   const scale = groupLayout.scale ?? 1;
 
+  // Full-width bar spans the whole canvas edge-to-edge, independent of the
+  // group's horizontal drag/scale — drawn in absolute canvas space, not the
+  // translated/scaled text frame below.
+  if (fullWidthBar) {
+    const boxH = layout.height * scale + padVertical * scale * 2;
+    const boxY = centerY - boxH / 2;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 4;
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = globalStyle.style.backgroundColor!;
+    roundRectPath(ctx, 0, boxY, outW, boxH, radius * scale);
+    ctx.fill();
+    ctx.restore();
+  }
+
   ctx.save();
   ctx.translate(centerX, centerY);
   ctx.scale(scale, scale);
 
-  if (hasBg) {
+  if (hasBg && !fullWidthBar) {
     const boxW = layout.width + padHorizontal * 2;
     const boxH = layout.height + padVertical * 2;
     ctx.save();
