@@ -204,11 +204,30 @@ export default function Timeline() {
     const onSeeked = () => {
       if (cancelled || !ctx) return;
       if (frames.length === 0) {
+        // Fixed landscape-ish capture size regardless of source aspect: a
+        // portrait/vertical source (the common case for short-form video)
+        // made the old width formula (videoWidth/videoHeight * 64) collapse
+        // to a few dozen pixels, which then had to be blown back up via
+        // background-size: cover to fill each much-wider filmstrip cell —
+        // that upscaled a tiny, already-compressed JPEG into a smeared mess.
         canvas.height = 64;
-        canvas.width = Math.round((video.videoWidth / video.videoHeight) * 64) || 40;
+        canvas.width = 114;
       }
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      frames.push(canvas.toDataURL("image/jpeg", 0.6));
+      // Crop like CSS object-fit: cover instead of squishing the whole frame
+      // into the canvas, so a portrait source shows a normal center crop
+      // instead of a squeezed, distorted one.
+      const canvasAspect = canvas.width / canvas.height;
+      const videoAspect = video.videoWidth / video.videoHeight || canvasAspect;
+      let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
+      if (videoAspect > canvasAspect) {
+        sw = video.videoHeight * canvasAspect;
+        sx = (video.videoWidth - sw) / 2;
+      } else {
+        sh = video.videoWidth / canvasAspect;
+        sy = (video.videoHeight - sh) / 2;
+      }
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      frames.push(canvas.toDataURL("image/jpeg", 0.75));
       captureAt(frames.length);
     };
 
