@@ -13,7 +13,7 @@ import {
   isShadowDisabled,
   resolveShadowSpec,
 } from "./shadow";
-import { sampleZoom } from "./zoom";
+import { sampleZoom, ZOOM_ORIGIN_Y } from "./zoom";
 import { easeProgress } from "./easing";
 
 // The width (CSS px) every caption-metric in the editor is designed against.
@@ -649,7 +649,19 @@ export function paintExportFrame(canvas: HTMLCanvasElement, opts: SceneDrawOptio
     const marginX = crop ? Math.max(0, (baseDw - outW) / 2) * zoom : 0;
     const marginY = crop ? Math.max(0, (baseDh - outH) / 2) * zoom : 0;
     const sx = (outW - dw) / 2 - (rf.x ?? 0) * marginX;
-    const sy = (outH - dh) / 2 - (rf.y ?? 0) * marginY;
+    // Uncropped (contain) frame only: camera zoom scales around a point
+    // slightly above vertical center (ZOOM_ORIGIN_Y) instead of dead-center.
+    // A plain centered scale grows the frame symmetrically around its own
+    // middle, which on a talking-head shot reads as the picture "breathing"
+    // rather than a camera approaching the person — nothing anchors it to
+    // them. This doesn't track a face (no such data exists here), it's a
+    // fixed bias toward where a head usually sits in a standard frame — same
+    // idea as the platform crop's reframe, just for the case with no explicit
+    // offset. The crop branch already has its own (correct) reframe-based
+    // sliding above and is left untouched.
+    const sy = crop
+      ? (outH - dh) / 2 - (rf.y ?? 0) * marginY
+      : ZOOM_ORIGIN_Y * outH + ((outH - baseDh) / 2 - ZOOM_ORIGIN_Y * outH) * zoom;
     ctx.drawImage(video, sx, sy, dw, dh);
   }
 

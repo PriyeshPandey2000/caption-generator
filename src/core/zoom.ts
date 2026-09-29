@@ -3,6 +3,25 @@ import { v4 as uuid } from "uuid";
 
 const DEFAULT_ANTICIPATION_MS = 100;
 
+// Fallback-only: the minimum time between one punch's peak and the next
+// word's start. Without this, "every word qualifies" means every word gets
+// its own punch — on ordinary speech (2-4 words/sec) that's a zoom cycle
+// every few hundred ms for the whole video: the frame never settles, it just
+// pulses continuously at speech cadence. A real camera punch is an occasional
+// beat (every couple of seconds), not a metronome. Explicit/curated
+// emphasis lists are already sparse by construction and aren't gated by this.
+const MIN_FALLBACK_GAP_SEC = 2.2;
+
+// Camera zoom scales the frame around this fraction of its height instead of
+// dead-center (0.5). On a standard talking-head frame the face sits above
+// the geometric middle, so scaling around 0.5 grows the picture symmetrically
+// around empty space (mostly torso/background) and reads as the whole frame
+// "breathing" rather than a camera approaching the person. This isn't face
+// tracking — there's no such data here — just a fixed bias toward where a
+// head usually is. Shared with scene-renderer so the preview and the export
+// scale around the same point.
+export const ZOOM_ORIGIN_Y = 0.44;
+
 export function buildCameraTimeline(
   words: Word[],
   emphasisWordIds: string[],
@@ -26,17 +45,17 @@ export function buildCameraTimeline(
 
     const anticipate = Math.max(0, word.start - anticipationSec);
 
-    // In the fallback every word qualifies, and at normal speech cadence their
-    // envelopes overlap by construction (100ms anticipation + 300ms release
-    // around a ~250ms word), so mergeOverlapping would chain the whole
-    // transcript into a single event peaking on the *last* word — a slow drift
-    // with no punch left in it. Space the fallback picks so each punch stands
-    // on its own; skipping the merge instead would not help, because
-    // sampleZoom resolves the first event containing t and the earlier tail
-    // would shadow the later punch. Explicit emphasis is sparse by
-    // construction, so it keeps the merge.
+    // In the fallback every word qualifies. The old guard here only skipped a
+    // word whose envelope *overlapped* the previous one (anticipate <=
+    // last.end) — envelopes are ~400-500ms, so on ordinary speech that still
+    // let a new punch start every word or two: a continuous pulse, not an
+    // occasional beat. Gate on MIN_FALLBACK_GAP_SEC from the previous punch's
+    // *peak* (the actual beat moment) instead, so fallback punches land a
+    // couple of seconds apart regardless of how tightly the words are packed.
+    // Explicit/curated emphasis is sparse by construction and skips this gate
+    // entirely — only the "no emphasis matched" fallback needed throttling.
     const last = events[events.length - 1];
-    if (isFallback && last && anticipate <= last.end) continue;
+    if (isFallback && last && word.start - last.peak < MIN_FALLBACK_GAP_SEC) continue;
 
     const holdStart = word.start + Math.min(inSec, (word.end - word.start) * 0.3);
     const releaseEnd = word.end + outSec;

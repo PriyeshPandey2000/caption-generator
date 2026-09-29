@@ -6,7 +6,7 @@ import CaptionOverlay from "./CaptionOverlay";
 import TransportControls from "./TransportControls";
 import PlatformPreviewOverlay, { PlatformPreviewToggle } from "./PlatformPreviewOverlay";
 import BackgroundLayer from "./BackgroundLayer";
-import { sampleZoom } from "@/core/zoom";
+import { sampleZoom, ZOOM_ORIGIN_Y } from "@/core/zoom";
 import { sfxEngine } from "@/core/audio";
 import { EXPORT_DESIGN_WIDTH } from "@/core/scene-renderer";
 
@@ -416,7 +416,17 @@ export default function VideoPreview() {
           <div
             ref={zoomRef}
             className="w-full h-full"
-            style={{ transformOrigin: "center center" }}
+            // Uncropped view only: matches scene-renderer's contain-path bias
+            // (ZOOM_ORIGIN_Y) so camera zoom scales toward where a head
+            // usually sits instead of the frame's dead-center. The platform
+            // crop already points the video at the subject via reframe
+            // (objectPosition below) and keeps its own center-anchored zoom —
+            // left untouched here.
+            style={{
+              transformOrigin: cropActive
+                ? "center center"
+                : `50% ${ZOOM_ORIGIN_Y * 100}%`,
+            }}
           >
             <video
               ref={videoRef}
