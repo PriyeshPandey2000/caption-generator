@@ -136,7 +136,11 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         fontFamily: "Inter, system-ui, sans-serif",
         fontSize: 42,
         color: "#FFFFFF",
-        strokeWidth: 2,
+        // The Clean *card* is choreographed, so this bundle — not the card's
+        // own style entry — is what a click applies. The two used to disagree
+        // (card 0, bundle 2), which made the card's strokeWidth a no-op and
+        // left a 2px outline on a preset meant to be stroke-free.
+        strokeWidth: 0,
         ...shadowPatchForLook("tight"),
         fontWeight: 700,
         textTransform: "none",
