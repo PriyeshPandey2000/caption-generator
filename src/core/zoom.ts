@@ -95,11 +95,18 @@ export function sampleZoom(
     const effectiveMax = 1 + (globalMax - 1) * event.intensity;
 
     // Phase 1: Anticipate → zoom-in (start to peak)
+    //
+    // easeOutCubic, not an overshoot easing. easeOutBack (c1 = 1.70158) is a
+    // bounce: it accelerates past the target and springs back, which read on a
+    // short word as a hard "zoom in and snap back" jolt. Cubic still lands
+    // fast — the punch comes from the peak scale and the SFX, not from a
+    // bounce — and it never exceeds the target, so the release below returns
+    // to 1.0 as a pure decay with no visible direction change at the peak.
     if (currentTime <= event.peak) {
       const range = event.peak - event.start;
       if (range <= 0) return effectiveMax;
       const t = (currentTime - event.start) / range;
-      return 1 + (effectiveMax - 1) * easeOutBack(t);
+      return 1 + (effectiveMax - 1) * easeOutCubic(t);
     }
 
     // Phase 2: Hold at maxScale (peak to word.end)
@@ -117,12 +124,6 @@ export function sampleZoom(
   }
 
   return 1.0;
-}
-
-function easeOutBack(t: number): number {
-  const c1 = 1.70158;
-  const c3 = c1 + 1;
-  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 }
 
 function easeOutCubic(t: number): number {

@@ -54,7 +54,9 @@ const styleBundles: Record<string, ChoreographyBundle> = {
   mrbeast: {
     description: "High-energy MrBeast style — punchy, loud, yellow-accented",
     emphasisWords: ["pop", "anything", "big", "energy", "fastest", "never"],
-    cameraMovement: { enabled: true, intensity: 0.85 },
+    // 0.55 -> 1.33x peak. At the old 0.85 (-> 1.51x) the push-in was so large
+    // it read as a camera slam rather than an emphasis accent.
+    cameraMovement: { enabled: true, intensity: 0.55 },
     sfx: { enabled: true, pack: "creator", density: "energetic" },
     global: {
       style: {
@@ -134,7 +136,11 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         fontFamily: "Inter, system-ui, sans-serif",
         fontSize: 42,
         color: "#FFFFFF",
-        strokeWidth: 2,
+        // The Clean *card* is choreographed, so this bundle — not the card's
+        // own style entry — is what a click applies. The two used to disagree
+        // (card 0, bundle 2), which made the card's strokeWidth a no-op and
+        // left a 2px outline on a preset meant to be stroke-free.
+        strokeWidth: 0,
         ...shadowPatchForLook("tight"),
         fontWeight: 700,
         textTransform: "none",
