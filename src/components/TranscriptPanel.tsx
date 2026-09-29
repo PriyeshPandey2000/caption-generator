@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useRef, useEffect, memo } from "react";
+import { useState, useRef, useEffect, useMemo, memo } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import EditableWord from "@/components/EditableWord";
 import { DictionaryEntry } from "@/core/types";
 import { isSingleToken } from "@/core/dictionary";
+
+// How long a manual scroll keeps control of the list before playback reclaims
+// it. Long enough to read a couple of lines, short enough that following
+// resumes promptly once the user stops.
+const MANUAL_SCROLL_HOLD_MS = 2500;
 
 // Numbers and other detail-heavy tokens are what speech-to-text gets wrong
 // most often — highlighting them draws the eye to what's worth double-checking.
@@ -50,6 +55,83 @@ export default function TranscriptPanel({ onClose }: { onClose?: () => void }) {
   const removeDictionaryEntry = useEditorStore((s) => s.removeDictionaryEntry);
   const [editMode, setEditMode] = useState(false);
   const [showDictionary, setShowDictionary] = useState(false);
+
+  // Keeps the caption currently on screen in view. The active group is already
+  // flagged with the green border, but nothing moved the list toward it, so
+  // during playback the indicator simply scrolled off the top and the user had
+  // to hunt for where the video was.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Set while the user is driving the scroll themselves, cleared after they
+  // stop. Without this, following the video yanks the list back mid-read every
+  // time a new caption group starts.
+  const manualScrollUntilRef = useRef(0);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // pointerdown covers scrollbar drags; wheel/touchmove cover the rest.
+    const hold = () => {
+      manualScrollUntilRef.current = Date.now() + MANUAL_SCROLL_HOLD_MS;
+    };
+    el.addEventListener("pointerdown", hold, { passive: true });
+    el.addEventListener("wheel", hold, { passive: true });
+    el.addEventListener("touchmove", hold, { passive: true });
+    return () => {
+      el.removeEventListener("pointerdown", hold);
+      el.removeEventListener("wheel", hold);
+      el.removeEventListener("touchmove", hold);
+    };
+  }, []);
+
+  // Sorted once per transcript, not once per tick. groupWordsIntoCaptions
+  // inherits the order of `words` (Whisper output, already chronological), so
+  // this is a cheap safety net rather than a hot-path sort — but the search
+  // below is only correct if the order holds, so it doesn't get to assume.
+  const groupsByStart = useMemo(
+    () => (transcription ? [...transcription.captionGroups].sort((a, b) => a.start - b.start) : []),
+    [transcription]
+  );
+
+  // Resolves to an index, not a boolean, so the effect below keys on identity
+  // and fires once per caption instead of on every animation frame. Binary
+  // search keeps this O(log n) per tick and correct in both directions, with no
+  // cached "last seen" position to keep in sync.
+  const activeGroupIndex = useMemo(() => {
+    if (!transcription) return -1;
+    const groups = groupsByStart;
+    let lo = 0;
+    let hi = groups.length - 1;
+    let found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (groups[mid].start <= currentTime) {
+        found = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    // A gap between groups (or a time before the first one) has no active
+    // caption, even though a later group may have already started.
+    if (found < 0 || currentTime > groups[found].end) return -1;
+    return found;
+  }, [transcription, groupsByStart, currentTime]);
+
+  useEffect(() => {
+    if (activeGroupIndex < 0 || !scrollRef.current) return;
+    const group = groupsByStart[activeGroupIndex];
+    if (!group) return;
+    // Editing means the caret lives in this list; jumping it away mid-word
+    // would lose the user's place.
+    if (editMode) return;
+    if (Date.now() < manualScrollUntilRef.current) return;
+    const el = scrollRef.current.querySelector<HTMLElement>(
+      `[data-group-id="${CSS.escape(group.id)}"]`
+    );
+    // "nearest" moves the list only as far as needed, so a caption that is
+    // already visible is left completely alone.
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeGroupIndex, editMode, groupsByStart]);
 
   if (!transcription) return null;
 
@@ -112,7 +194,7 @@ export default function TranscriptPanel({ onClose }: { onClose?: () => void }) {
           onRemove={removeDictionaryEntry}
         />
       )}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
         {transcription.captionGroups.map((group) => {
           const isActive = currentTime >= group.start && currentTime <= group.end;
           // "Selected" at the sentence level = every word in this group is
@@ -128,6 +210,7 @@ export default function TranscriptPanel({ onClose }: { onClose?: () => void }) {
           return (
             <div
               key={group.id}
+              data-group-id={group.id}
               className={`pl-2.5 py-1 -my-1 border-l-2 rounded-r transition-colors ${
                 isActive ? "border-[#00FF66]" : "border-transparent"
               } ${isSentenceSelected ? "bg-blue-500/10" : ""}`}

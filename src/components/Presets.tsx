@@ -46,21 +46,6 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
     },
   },
   {
-    name: "Clean",
-    style: {
-      style: {
-        fontFamily: "Inter, system-ui, sans-serif",
-        fontSize: 48,
-        color: "#FFFFFF",
-        strokeWidth: 0,
-        fontWeight: 700,
-        textTransform: "uppercase",
-        letterSpacing: 2,
-        ...shadowPatchForLook("tight"),
-      },
-    },
-  },
-  {
     name: "MrBeast",
     style: {
       style: {
@@ -98,26 +83,6 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
       motion: {
         entrance: { type: "glow", duration: 300, glowRadius: 20, color: "#00FF88" },
         active: { type: "glow", glowRadius: 30, color: "#00FF88", duration: 200 },
-        exit: { type: "fade", from: 1, to: 0, duration: 200 },
-      },
-    },
-  },
-  {
-    name: "Editorial",
-    style: {
-      style: {
-        fontFamily: "Georgia, serif",
-        fontSize: 40,
-        color: "#FFFFFF",
-        strokeWidth: 0,
-        fontWeight: 400,
-        textTransform: "none",
-        letterSpacing: 0,
-        ...shadowPatchForLook("soft"),
-      },
-      motion: {
-        entrance: { type: "fade", from: 0, to: 1, duration: 300 },
-        active: { type: "scale", scaleFrom: 100, scaleTo: 105, duration: 100 },
         exit: { type: "fade", from: 1, to: 0, duration: 200 },
       },
     },
@@ -228,12 +193,45 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
       },
     },
   },
+  {
+    name: "Karaoke",
+    style: {
+      style: {
+        fontFamily: "Inter, system-ui, sans-serif",
+        fontSize: 48,
+        color: "#FFFFFF",
+        strokeWidth: 0,
+        fontWeight: 800,
+        textTransform: "uppercase",
+        letterSpacing: 0,
+        backgroundPadding: 6,
+        backgroundBorderRadius: 10,
+        ...shadowPatchForLook("tight"),
+      },
+      motion: {
+        entrance: { type: "fade", from: 0, to: 1, duration: 150 },
+        // The pill (backgroundColor) only paints while a word is spoken — it's
+        // an AnimationRecipe field, not a WordStyle one, so unlike Classic/Boxed
+        // there is no group-level box: only the current word gets a highlight,
+        // and it moves as playback does.
+        active: {
+          type: "scale",
+          scaleFrom: 100,
+          scaleTo: 103,
+          duration: 100,
+          color: "#000000",
+          backgroundColor: "#00FF66",
+        },
+        exit: { type: "fade", from: 1, to: 0, duration: 150 },
+      },
+    },
+  },
 ];
 
 // Names that also exist as a full choreography bundle (style + motion +
 // camera zoom + auto-SFX + emphasis words) — clicking these applies the
 // richer bundle instead of just style+motion, so there's one list, not two.
-const CHOREOGRAPHED_PRESETS = new Set(["Hormozi", "MrBeast", "Clean", "Neon"]);
+const CHOREOGRAPHED_PRESETS = new Set(["Hormozi", "MrBeast", "Neon"]);
 
 /** The patch a card actually applies — for the choreographed names that is the
  * choreography bundle's `global`, not the card's own style entry, so the "is
@@ -358,6 +356,13 @@ export default function Presets() {
       <div className="space-y-2">
         {presets.map((preset) => {
           const active = activePresetName === preset.name;
+          // The choreographed names (Hormozi/MrBeast/Neon) apply
+          // resolveChoreography()'s bundle on click, not this card's own
+          // `style` entry — previewing from the card's entry let the two
+          // drift apart (MrBeast's card said black stroke, its bundle said
+          // gold), so the thumbnail promised a look the click didn't give.
+          // Resolving through the same patch the click uses keeps them honest.
+          const resolvedStyle = presetPatch(preset.name, preset.style).style;
           return (
             <button
               key={preset.name}
@@ -381,10 +386,10 @@ export default function Presets() {
                 </span>
                 {active && <ActiveBadge />}
               </span>
-              <PresetPreview style={preset.style.style} />
+              <PresetPreview style={resolvedStyle} />
               <p className="text-[10px] text-zinc-500 mt-1 truncate">
-                {preset.style.style?.fontFamily?.split(",")[0]} ·{" "}
-                {preset.style.style?.fontSize}px
+                {resolvedStyle?.fontFamily?.split(",")[0]} ·{" "}
+                {resolvedStyle?.fontSize}px
               </p>
             </button>
           );

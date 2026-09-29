@@ -568,8 +568,17 @@ export default function Editor() {
       <Group orientation="horizontal" className="flex-1 min-w-0 overflow-hidden">
         <ResizablePanel
           id="editor-main"
-          minSize="30"
-          defaultSize="58"
+          minSize="30%"
+          // Explicit `%`: react-resizable-panels interprets a unitless
+          // defaultSize as a percentage, but its server-rendered inline style
+          // passes the raw string through, so `flex-basis:58` reaches the
+          // browser as an invalid length. The declaration is dropped, the panel
+          // falls back to `flex-basis: auto` (content width) and the hero paints
+          // left-aligned before the client effect widens it to full — a visible
+          // jump to centre on a cold load. The sidebars only mount once a
+          // transcript exists, so on the hero this panel is the only one in the
+          // group and must claim the full width from the first paint.
+          defaultSize={transcription ? "58%" : "100%"}
           className="min-w-0 flex flex-col"
         >
           <div className="flex flex-col min-w-0 h-full">
@@ -834,9 +843,9 @@ function ResizableSidebar({
   open,
   onOpenChange,
   children,
-  defaultSize = "22",
-  minSize = "14",
-  maxSize = "40",
+  defaultSize = "22%",
+  minSize = "14%",
+  maxSize = "40%",
 }: {
   panelId: string;
   label: string;

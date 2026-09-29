@@ -116,6 +116,11 @@ export interface WordVisuals {
   letterSpacingPx: number;
   opacity: number;
   shadow: { x: number; y: number; blur: number; color: string } | null;
+  /** Per-word active highlight pill (AnimationRecipe.backgroundColor) — null
+   * outside the spoken window. Independent of the group-level background box. */
+  backgroundColor: string | null;
+  backgroundPaddingPx: number;
+  backgroundRadiusPx: number;
 }
 
 // Exact port of WordSpan — every shipped type renders identically on screen
@@ -148,6 +153,9 @@ export function evaluateWordVisuals(
   let color = style.color ?? "#FFFFFF";
   let shadow: { x: number; y: number; blur: number; color: string } | null = null;
   let opacity = style.opacity ?? 1;
+  let backgroundColor: string | null = null;
+  const backgroundPaddingPx = (style.backgroundPadding ?? 6) * sf;
+  const backgroundRadiusPx = (style.backgroundBorderRadius ?? 8) * sf;
 
   // Shadow precedence, as a total order with no overlap:
   //   1. the user picked "None"      -> no shadow at all, glow included
@@ -246,6 +254,7 @@ export function evaluateWordVisuals(
       (baseFontSize * (scaleFrom + (scaleTo - scaleFrom) * progress)) / 100
     );
     if (spoken.color && !word.style?.color) color = spoken.color;
+    if (spoken.backgroundColor) backgroundColor = spoken.backgroundColor;
     if (spoken.glowRadius && !shadowOff) {
       shadow = {
         x: 0,
@@ -263,6 +272,7 @@ export function evaluateWordVisuals(
         : Math.min(1, Math.max(0, spokenElapsed / spokenDuration));
     const progress = easeProgress(spokenProgress, spoken.easing);
     if (spoken.color && !word.style?.color) color = spoken.color;
+    if (spoken.backgroundColor) backgroundColor = spoken.backgroundColor;
     if (!shadowOff) {
       shadow = {
         x: 0,
@@ -307,6 +317,9 @@ export function evaluateWordVisuals(
     letterSpacingPx: (style.letterSpacing ?? 0) * sf,
     opacity,
     shadow,
+    backgroundColor,
+    backgroundPaddingPx,
+    backgroundRadiusPx,
   };
 }
 
@@ -431,6 +444,20 @@ function paintWord(ctx: CanvasRenderingContext2D, lw: LayoutWord, x: number, bas
   const v = lw.visuals;
   ctx.save();
   ctx.globalAlpha = v.opacity;
+  if (v.backgroundColor) {
+    const padH = v.backgroundPaddingPx * 2;
+    const padV = v.backgroundPaddingPx;
+    ctx.fillStyle = v.backgroundColor;
+    roundRectPath(
+      ctx,
+      x - padH,
+      baseline - lw.ascent - padV,
+      lw.width + padH * 2,
+      lw.ascent + lw.descent + padV * 2,
+      v.backgroundRadiusPx
+    );
+    ctx.fill();
+  }
   ctx.font = `${v.fontWeight} ${v.fontPx}px ${v.fontFamily}`;
   ctx.fillStyle = v.color;
   if (v.strokeWidthPx > 0) {

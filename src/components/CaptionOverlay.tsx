@@ -540,6 +540,11 @@ function WordSpan({
     // (which is "spoken now" by definition) silently reverts to the
     // animation's color and the color picker looks broken.
     if (spoken.color && !word.style?.color) animStyle.color = spoken.color;
+    if (spoken.backgroundColor) {
+      animStyle.backgroundColor = spoken.backgroundColor;
+      animStyle.padding = `${(style.backgroundPadding ?? 6) * scaleFactor}px ${(style.backgroundPadding ?? 6) * 2 * scaleFactor}px`;
+      animStyle.borderRadius = `${(style.backgroundBorderRadius ?? 8) * scaleFactor}px`;
+    }
     if (spoken.glowRadius && !shadowOff) {
       animStyle.textShadow = `0 0 ${(spoken.glowRadius ?? 22) * scaleFactor * eased}px ${spoken.color || "#FFD700"}`;
     }
@@ -552,6 +557,11 @@ function WordSpan({
         : Math.min(1, Math.max(0, elapsed / duration));
     const eased = easeProgress(progress, spoken.easing);
     if (spoken.color && !word.style?.color) animStyle.color = spoken.color;
+    if (spoken.backgroundColor) {
+      animStyle.backgroundColor = spoken.backgroundColor;
+      animStyle.padding = `${(style.backgroundPadding ?? 6) * scaleFactor}px ${(style.backgroundPadding ?? 6) * 2 * scaleFactor}px`;
+      animStyle.borderRadius = `${(style.backgroundBorderRadius ?? 8) * scaleFactor}px`;
+    }
     if (!shadowOff) {
       animStyle.textShadow = `0 0 ${(spoken.glowRadius ?? 22) * scaleFactor * eased}px ${spoken.color || "#FFD700"}`;
     }
@@ -591,7 +601,7 @@ function WordSpan({
       fieldName={`word-${word.id}`}
       dataWordId={word.id}
       className={`
-        inline-block cursor-pointer select-none transition-[transform,font-size]
+        inline-block cursor-pointer select-none transition-[transform,font-size,background-color,padding]
         ${
           isSelected
             ? "outline outline-1 outline-dashed outline-black outline-offset-4"

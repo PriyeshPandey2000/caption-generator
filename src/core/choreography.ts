@@ -63,7 +63,11 @@ const styleBundles: Record<string, ChoreographyBundle> = {
         fontFamily: "Impact, 'Arial Black', sans-serif",
         fontSize: 76,
         color: "#FFFFFF",
-        strokeColor: "#FFD700",
+        // Black, not gold — every real breakdown of his captions agrees on a
+        // thick black outline (it's what keeps text legible over any footage,
+        // not a brand color). Gold is reserved for the emphasis pop below, so
+        // it still reads as a highlight instead of just "the color everywhere".
+        strokeColor: "#000000",
         strokeWidth: 4,
         ...shadowPatchForLook("hard"),
         fontWeight: 900,

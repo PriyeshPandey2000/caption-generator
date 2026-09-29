@@ -49,6 +49,11 @@ export interface AnimationRecipe {
   glowRadius?: number;
   scaleFrom?: number;
   scaleTo?: number;
+  /** "active" only: paints a rounded highlight pill behind the word while
+   * it's spoken (sized from the style's backgroundPadding/BorderRadius),
+   * independent of the group-level backgroundColor box — a word can have a
+   * per-word active pill with no group box, or either alone. */
+  backgroundColor?: string;
 }
 
 export interface WordTransform {
