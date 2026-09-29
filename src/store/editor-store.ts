@@ -209,21 +209,26 @@ const HISTORY_LIMIT = 50;
 const COALESCE_MS = 500;
 
 /**
- * Base for `applyPreset` so a preset means "this exact look" instead of
- * "these changes, relative to whatever is loaded".
+ * Base for `applyPreset` and `applyChoreography` so a preset means "this
+ * exact look" instead of "these changes, relative to whatever is loaded".
  *
  * `mergeGlobalStyle` patches onto `base`, so every field a preset omits would
- * otherwise keep the currently loaded value — Clean silently inherited a 1px
- * black stroke, or 3px if MrBeast was applied first, so the same preset
- * rendered differently depending on click order. Seeding the appearance
- * sections from the defaults makes presets order-independent.
+ * otherwise keep the currently loaded value. Seeding the appearance sections
+ * from the defaults makes presets order-independent: Clean omitted
+ * `strokeColor`, so applying it after MrBeast left a gold outline and after
+ * Neon a green one, instead of the black it declares nowhere.
  *
  * `videoEffects`, `sfx`, `background` and `music` deliberately carry over
- * from the live style: a look preset should not throw away the camera and
- * audio work already done. Seeded one level deep so those stay live objects
+ * from the live style: a look preset should not throw away camera or audio
+ * work already done. A choreography bundle still overrides those explicitly
+ * via its own patch, so asking for the "Hormozi" look still applies Hormozi
+ * camera moves and SFX — it just starts from default typography rather than
+ * from whatever was loaded.
+ *
+ * Seeded one level deep so the carried-over sections stay live objects
  * rather than references to the shared defaults.
  */
-function presetBaseFor(current: GlobalStyle): GlobalStyle {
+function appearanceBaseFor(current: GlobalStyle): GlobalStyle {
   return {
     ...current,
     style: { ...defaultWordStyle },
@@ -901,7 +906,10 @@ export const useEditorStore = create<EditorState>((set) => ({
       return {
         project: {
           ...s.project,
-          globalStyle: mergeGlobalStyle(s.project.globalStyle, {
+          // Same defaults-based base as `applyPreset`: a bundle omits
+          // plenty of fields, and merging onto the live style made the
+          // result depend on which look was applied before this one.
+          globalStyle: mergeGlobalStyle(appearanceBaseFor(s.project.globalStyle), {
             ...bundle.global,
             sfx,
             videoEffects: newVideoEffects,
@@ -970,7 +978,7 @@ export const useEditorStore = create<EditorState>((set) => ({
     set((s) => ({
       project: {
         ...s.project,
-        globalStyle: mergeGlobalStyle(presetBaseFor(s.project.globalStyle), preset),
+          globalStyle: mergeGlobalStyle(appearanceBaseFor(s.project.globalStyle), preset),
       },
     })),
 
