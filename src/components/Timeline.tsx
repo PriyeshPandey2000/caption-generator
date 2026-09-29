@@ -568,6 +568,9 @@ export default function Timeline() {
         {wordPositions.map((w, i) => {
           const prevEnd = i > 0 ? wordPositions[i - 1].end : 0;
           const nextStart = i < wordPositions.length - 1 ? wordPositions[i + 1].start : duration;
+          const isSelected = selectedWordIds.includes(w.id);
+          const isCurrentMatch = matchIds.has(w.id) && searchMatches[matchIndex]?.id === w.id;
+          const isMatch = matchIds.has(w.id);
           return (
             <div
               key={w.id}
@@ -588,19 +591,9 @@ export default function Timeline() {
                 }
               }}
               className={`
-                absolute top-1 bottom-1 rounded-sm cursor-pointer transition-opacity
-                ${
-                  selectedWordIds.includes(w.id)
-                    ? "bg-blue-500/60 opacity-100"
-                    : "bg-zinc-600/50 hover:bg-zinc-500/60 opacity-70"
-                }
-                ${
-                  matchIds.has(w.id)
-                    ? searchMatches[matchIndex]?.id === w.id
-                      ? "ring-2 ring-amber-300"
-                      : "ring-1 ring-amber-400/70"
-                    : ""
-                }
+                absolute top-0 bottom-0 cursor-pointer
+                ${isSelected ? "bg-blue-500/15" : ""}
+                ${isCurrentMatch ? "bg-amber-300/15" : isMatch ? "bg-amber-400/10" : ""}
               `}
               style={{
                 left: `${w.startPct}%`,
@@ -608,6 +601,38 @@ export default function Timeline() {
               }}
               title={w.text}
             >
+              {/*
+                Word marker.
+
+                This block is a full-height transparent hit area (click to
+                select, drag the edge handles to retime) and paints nothing
+                itself. The visible marker is the thin ribbon along the bottom
+                edge.
+
+                It used to be a filled full-height rect: `bg-zinc-600/50` at
+                `opacity-70`, i.e. 0.35 effective alpha over 56 of the lane's
+                64px. A 230-word transcript produces 113 such blocks at a
+                median 4.8px wide, covering ~86% of the lane — the filmstrip
+                underneath was chopped into slivers and dimmed, which read as
+                a fine comb. `rounded-sm` (4px) on a 4.8px-wide box also ate
+                the whole width, so the blocks rendered as lozenges rather
+                than bars.
+
+                The ribbon keeps every word boundary legible as a transcript
+                strip, the way Premiere and Resolve draw clip edges, while
+                leaving the filmstrip above it unobstructed.
+              */}
+              <div
+                className={`pointer-events-none absolute bottom-0 left-0 right-0 transition-colors ${
+                  isSelected
+                    ? "h-2.5 bg-blue-500/80"
+                    : isCurrentMatch
+                      ? "h-2 bg-amber-300/90"
+                      : isMatch
+                        ? "h-2 bg-amber-400/70"
+                        : "h-1.5 bg-white/35 hover:bg-white/60"
+                }`}
+              />
               {/* Left edge handle */}
               <div
                 className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize z-10 hover:bg-[#00FF66]/60 transition-colors rounded-l-sm"
