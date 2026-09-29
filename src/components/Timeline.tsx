@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useMemo, useState, useEffect } from "react";
+import { useRef, useCallback, useMemo, useState, useEffect, useLayoutEffect } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { sliderFillStyle } from "./rangeFill";
 
@@ -208,8 +208,68 @@ export default function Timeline() {
   );
 
   const showSfxLane = sfxEnabled && sfxEvents.length > 0;
-  const thumbnails = filmstrip?.url === videoUrl ? filmstrip.frames : [];
+  const thumbnails = useMemo(
+    () => (filmstrip?.url === videoUrl ? filmstrip.frames : []),
+    [filmstrip, videoUrl]
+  );
   const filmstripCount = filmstrip?.count ?? MIN_FILMSTRIP_FRAMES;
+
+  // Track the strip's actual on-screen width — it changes with `zoom`, since
+  // the track lives in a div sized to `${zoom * 100}%` of its scroll parent.
+  // Read the width directly on mount rather than waiting on the observer's
+  // first callback: ResizeObserver's initial invocation isn't guaranteed to
+  // fire promptly (or at all) in a backgrounded/automated tab, and stalling
+  // on `trackWidth === 0` is exactly the failure mode this is guarding
+  // against — it silently fell back to a forced density and reproduced the
+  // narrow-cell smear this whole fix exists to prevent.
+  const [trackWidth, setTrackWidth] = useState(0);
+  // Re-measure whenever `zoom` changes rather than trusting the observer to
+  // catch it: a zoom-driven width change is a style change on an element we
+  // already hold a ref to, not an external resize, and RO's first callback —
+  // let alone a later one — isn't guaranteed to land promptly in a
+  // backgrounded/automated tab. Confirmed by direct testing: the container
+  // grew from 521px to 781px on zoom, and RO never reported either width.
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (el) setTrackWidth(el.clientWidth);
+  }, [zoom]);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width) setTrackWidth(width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // How many of the captured frames actually fit at MIN_FILMSTRIP_CELL_PX
+  // given the current width. Capture always targets full duration-based
+  // density (see the effect below); this decides how much of that density
+  // to show — fewer, wider cells at the default zoom, more as the user
+  // zooms in and the track (and thus this width) grows.
+  const displayCount = useMemo(() => {
+    if (trackWidth <= 0) return Math.min(filmstripCount, MIN_FILMSTRIP_FRAMES);
+    // The width is the hard ceiling here — a narrow track must show fewer
+    // than MIN_FILMSTRIP_FRAMES cells rather than forcing that many in
+    // regardless of space. `Math.max(MIN_FILMSTRIP_FRAMES, ...)` was the bug:
+    // it guaranteed at least 8 cells no matter how little room there was,
+    // which is exactly what re-crushed the strip on a track narrower than
+    // the ~680px this was tuned against.
+    const maxByWidth = Math.max(1, Math.floor(trackWidth / MIN_FILMSTRIP_CELL_PX));
+    return Math.min(filmstripCount, maxByWidth);
+  }, [filmstripCount, trackWidth]);
+
+  // Even sampling rather than a straight slice, so the displayed set always
+  // spans the full clip instead of clustering near whatever's captured so far.
+  const displayedThumbnails = useMemo(() => {
+    if (thumbnails.length <= displayCount) return thumbnails;
+    const step = thumbnails.length / displayCount;
+    return Array.from({ length: displayCount }, (_, i) =>
+      thumbnails[Math.min(thumbnails.length - 1, Math.floor(i * step))]
+    );
+  }, [thumbnails, displayCount]);
 
   useEffect(() => {
     if (!videoUrl) return;
@@ -332,22 +392,14 @@ export default function Timeline() {
       if (!Number.isFinite(d) || d <= 0) return;
       videoDuration = d;
       // One thumbnail per FILMSTRIP_TARGET_SEC of runtime, bounded at both ends.
+      // Always capture at this full density — zooming in should reveal more
+      // of what's already there rather than triggering a re-seek pass, so
+      // the on-screen cell-width clamp is applied only at display time
+      // (see `displayCount` below), independent of how many frames exist.
       frameCount = Math.max(
         MIN_FILMSTRIP_FRAMES,
         Math.min(MAX_FILMSTRIP_FRAMES, Math.round(d / FILMSTRIP_TARGET_SEC))
       );
-      // Re-clamp against the track's actual on-screen width (read at the
-      // default zoom, before the user has had a chance to zoom in) so a long
-      // clip trades thumbnail density for cells that are still wide enough
-      // to read as an image instead of a sliver.
-      const trackWidth = containerRef.current?.clientWidth ?? 0;
-      if (trackWidth > 0) {
-        const maxByWidth = Math.max(
-          MIN_FILMSTRIP_FRAMES,
-          Math.floor(trackWidth / MIN_FILMSTRIP_CELL_PX)
-        );
-        frameCount = Math.min(frameCount, maxByWidth);
-      }
       captureAt(0);
     });
 
@@ -475,21 +527,21 @@ export default function Timeline() {
         onClick={handleClick}
         onMouseDown={handleBackgroundMouseDown}
         className={`relative h-16 rounded-lg cursor-crosshair overflow-hidden ${
-          thumbnails.length > 0 ? "bg-black" : "bg-zinc-800"
+          displayedThumbnails.length > 0 ? "bg-black" : "bg-zinc-800"
         }`}
       >
-        {thumbnails.length > 0 && (
+        {displayedThumbnails.length > 0 && (
           <div className="absolute inset-0 flex">
-            {thumbnails.map((src, i) => (
+            {displayedThumbnails.map((src, i) => (
               <div
                 key={i}
-                className="bg-cover bg-center shrink-0 h-full"
+                className="bg-cover bg-center bg-no-repeat shrink-0 h-full"
                 style={{
                   backgroundImage: `url(${src})`,
-                  // Fixed per-cell width against the target count, so a
+                  // Fixed per-cell width against the displayed count, so a
                   // partially-built strip fills in left to right instead of
                   // rescaling every thumbnail on each publish.
-                  width: `${100 / filmstripCount}%`,
+                  width: `${100 / displayCount}%`,
                 }}
               />
             ))}
