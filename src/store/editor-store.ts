@@ -17,7 +17,13 @@ import {
   DictionaryEntry,
   BackgroundMode,
 } from "@/core/types";
-import { defaultGlobalStyle, mergeGlobalStyle } from "@/core/styles";
+import {
+  defaultGlobalStyle,
+  defaultMotion,
+  defaultTransform,
+  defaultWordStyle,
+  mergeGlobalStyle,
+} from "@/core/styles";
 import { groupWordsIntoCaptions } from "@/core/captions";
 import { preprocessBackgroundImage } from "@/core/background-image";
 import { isSingleToken } from "@/core/dictionary";
@@ -201,6 +207,30 @@ interface DocSnapshot {
 
 const HISTORY_LIMIT = 50;
 const COALESCE_MS = 500;
+
+/**
+ * Base for `applyPreset` so a preset means "this exact look" instead of
+ * "these changes, relative to whatever is loaded".
+ *
+ * `mergeGlobalStyle` patches onto `base`, so every field a preset omits would
+ * otherwise keep the currently loaded value — Clean silently inherited a 1px
+ * black stroke, or 3px if MrBeast was applied first, so the same preset
+ * rendered differently depending on click order. Seeding the appearance
+ * sections from the defaults makes presets order-independent.
+ *
+ * `videoEffects`, `sfx`, `background` and `music` deliberately carry over
+ * from the live style: a look preset should not throw away the camera and
+ * audio work already done. Seeded one level deep so those stay live objects
+ * rather than references to the shared defaults.
+ */
+function presetBaseFor(current: GlobalStyle): GlobalStyle {
+  return {
+    ...current,
+    style: { ...defaultWordStyle },
+    motion: { ...defaultMotion },
+    transform: { ...defaultTransform },
+  };
+}
 
 let undoStack: DocSnapshot[] = [];
 let redoStack: DocSnapshot[] = [];
@@ -940,7 +970,7 @@ export const useEditorStore = create<EditorState>((set) => ({
     set((s) => ({
       project: {
         ...s.project,
-        globalStyle: mergeGlobalStyle(s.project.globalStyle, preset),
+        globalStyle: mergeGlobalStyle(presetBaseFor(s.project.globalStyle), preset),
       },
     })),
 
