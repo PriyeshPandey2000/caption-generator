@@ -42,6 +42,7 @@ next-env.d.ts
 
 # test assets
 /public/testclip.mov
+/public/samples/real-test.mp4
 
 # local agent tooling (worktrees, session state) - not project source
 .claude/
