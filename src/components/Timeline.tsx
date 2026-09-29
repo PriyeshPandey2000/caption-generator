@@ -14,6 +14,13 @@ const MAX_FILMSTRIP_FRAMES = 48;
 // The lane is 64 CSS px tall; capture at 2x so the strip stays sharp on HiDPI.
 const FILMSTRIP_HEIGHT = 64;
 const FILMSTRIP_QUALITY = 0.82;
+// Below this, a cell can't fit more than a sliver of its capture — bg-cover
+// center-crops a 16:9 frame down to a few px wide, and dozens of those
+// slivers side by side read as noise/interlacing rather than thumbnails.
+// Long clips were hitting MAX_FILMSTRIP_FRAMES while the track itself stayed
+// a fixed ~680px, so every clip past ~3.2 minutes got squeezed the same way
+// regardless of how much longer it ran.
+const MIN_FILMSTRIP_CELL_PX = 48;
 // Backstop so a seek can never stall the strip: `awaitFrame` also settles on
 // 'seeked', but a browser that delivers neither signal must still produce a
 // frame rather than leaving the timeline permanently blank.
@@ -327,6 +334,18 @@ export default function Timeline() {
         MIN_FILMSTRIP_FRAMES,
         Math.min(MAX_FILMSTRIP_FRAMES, Math.round(d / FILMSTRIP_TARGET_SEC))
       );
+      // Re-clamp against the track's actual on-screen width (read at the
+      // default zoom, before the user has had a chance to zoom in) so a long
+      // clip trades thumbnail density for cells that are still wide enough
+      // to read as an image instead of a sliver.
+      const trackWidth = containerRef.current?.clientWidth ?? 0;
+      if (trackWidth > 0) {
+        const maxByWidth = Math.max(
+          MIN_FILMSTRIP_FRAMES,
+          Math.floor(trackWidth / MIN_FILMSTRIP_CELL_PX)
+        );
+        frameCount = Math.min(frameCount, maxByWidth);
+      }
       captureAt(0);
     });
 
