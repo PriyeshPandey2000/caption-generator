@@ -535,7 +535,16 @@ export default function Timeline() {
             {displayedThumbnails.map((src, i) => (
               <div
                 key={i}
-                className="bg-cover bg-center bg-no-repeat shrink-0 h-full"
+                // Consecutive frames from a mostly-static shot (a talking
+                // head barely moving between samples) are nearly identical.
+                // Butted edge-to-edge with zero seam, a run of those reads
+                // as a moiré/interlaced comb rather than as distinct
+                // pictures — every capture is correct, but the eye can't
+                // tell where one thumbnail ends and the next begins. A
+                // border between cells breaks that illusion outright; every
+                // mainstream editor's filmstrip does the same for the same
+                // reason.
+                className="bg-cover bg-center bg-no-repeat shrink-0 h-full border-r border-black/50 last:border-r-0"
                 style={{
                   backgroundImage: `url(${src})`,
                   // Fixed per-cell width against the displayed count, so a
