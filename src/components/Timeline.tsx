@@ -19,8 +19,10 @@ const FILMSTRIP_QUALITY = 0.82;
 // slivers side by side read as noise/interlacing rather than thumbnails.
 // Long clips were hitting MAX_FILMSTRIP_FRAMES while the track itself stayed
 // a fixed ~680px, so every clip past ~3.2 minutes got squeezed the same way
-// regardless of how much longer it ran.
-const MIN_FILMSTRIP_CELL_PX = 48;
+// regardless of how much longer it ran. 48px still read as noisy once a real
+// (not synthetic) transcript's caption blocks narrowed the usable track —
+// went wider so cells are unambiguously a picture, not a sliver.
+const MIN_FILMSTRIP_CELL_PX = 96;
 // Backstop so a seek can never stall the strip: `awaitFrame` also settles on
 // 'seeked', but a browser that delivers neither signal must still produce a
 // frame rather than leaving the timeline permanently blank.
