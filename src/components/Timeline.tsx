@@ -288,7 +288,15 @@ export default function Timeline() {
         settled = true;
         clearTimeout(timer);
         video.removeEventListener("seeked", finish);
-        setTimeout(onReady, 0);
+        // A single macrotask yield wasn't enough settle time on a real 60fps
+        // 1080p file (twice the frames to flush per keyframe interval versus
+        // the 24-30fps clips this was verified against) — 'seeked' had fired
+        // but the compositor hadn't finished presenting the correct frame
+        // yet, producing the same torn/streaked captures this function
+        // exists to avoid. Two macrotask turns plus a short wall-clock delay
+        // gives a demanding decode more room without reintroducing rAF's
+        // background-tab stall.
+        setTimeout(() => setTimeout(onReady, 30), 0);
       };
       const timer = setTimeout(finish, FILMSTRIP_FRAME_WAIT_MS);
       // Registered before the seek that triggers it, or the event is missed.
