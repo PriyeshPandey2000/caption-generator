@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useEditorStore } from "@/store/editor-store";
 import { Word, WordStyle, WordMotion, AnimationRecipe, SfxName, SfxEvent, GlobalStyle } from "@/core/types";
 import { MIN_CAPTION_Y, MAX_CAPTION_Y, resolveWordStyle, resolveWordMotion, FONT_FAMILY_OPTIONS } from "@/core/styles";
@@ -14,6 +14,8 @@ import {
   shadowPatchForLook,
 } from "@/core/shadow";
 import { sliderFillStyle } from "./rangeFill";
+import { Toggle } from "./Toggle";
+import { fontSupportsWeightRange } from "@/core/font-weights";
 
 // MotionControls always emits a full per-phase recipe merged against the word
 // it's currently showing (see its updateRecipe), not just the field the user
@@ -539,6 +541,18 @@ function StyleControls({
 }) {
   const plateStyle = globalStyle.style;
   const plateOn = !!plateStyle.backgroundColor && plateStyle.backgroundColor !== "transparent";
+
+  // Weight support is a property of the loaded face, not of the style value, so
+  // it is re-measured whenever the family changes. This has to happen after
+  // mount: the server cannot measure fonts, so deriving it during render would
+  // render "enabled" on the server and "disabled" on the client and break
+  // hydration. Starting optimistic and correcting on mount is the safe order.
+  const [weightSupported, setWeightSupported] = useState(true);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWeightSupported(fontSupportsWeightRange(style.fontFamily ?? ""));
+  }, [style.fontFamily]);
+
   return (
     <div className="space-y-3">
       <div>
@@ -564,7 +578,21 @@ function StyleControls({
       <FieldGroup label="Color" type="color" value={style.color || "#FFFFFF"} onChange={(v) => onChange({ color: v as string })} />
       <FieldGroup label="Stroke Color" type="color" value={style.strokeColor || "#000000"} onChange={(v) => onChange({ strokeColor: v as string })} />
       <FieldGroup label="Stroke Width" value={style.strokeWidth} onChange={(v) => onChange({ strokeWidth: v as number })} min={0} max={10} unit="px" />
-      <FieldGroup label="Font Weight" value={style.fontWeight} onChange={(v) => onChange({ fontWeight: v as number })} min={100} max={900} step={100} />
+      <FieldGroup
+        label="Font Weight"
+        value={style.fontWeight}
+        onChange={(v) => onChange({ fontWeight: v as number })}
+        min={100}
+        max={900}
+        step={100}
+        disabled={!weightSupported}
+      />
+      {!weightSupported && (
+        <p className="text-[10px] text-amber-500/90 mt-1 mb-2">
+          This font ships a single weight, so Font Weight won&apos;t change how it
+          looks. Pick a variable font such as Inter to use it.
+        </p>
+      )}
       <FieldGroup label="Letter Spacing" value={style.letterSpacing} onChange={(v) => onChange({ letterSpacing: v as number })} min={0} max={20} unit="px" />
       <ShadowControl style={style} onChange={onChange} />
       <div className="pt-1 border-t border-zinc-800">
@@ -579,26 +607,15 @@ function StyleControls({
         </p>
         <div className="flex items-center justify-between">
           <span className="text-xs text-zinc-500">Show background box</span>
-          <button
-            type="button"
-            aria-pressed={plateOn}
-            onClick={() =>
+          <Toggle
+            checked={plateOn}
+            label="Show background box"
+            onChange={() =>
               onGlobalChange({
                 backgroundColor: plateOn ? "transparent" : "#000000",
               })
             }
-            className={`
-              relative w-10 h-5 rounded-full transition-colors
-              ${plateOn ? "bg-[#00FF66]" : "bg-zinc-700"}
-            `}
-          >
-            <span
-              className={`
-                absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
-                ${plateOn ? "translate-x-5" : "translate-x-0.5"}
-              `}
-            />
-          </button>
+          />
         </div>
         {/* Only shown once the box is on: the color swatch used to sit above
             this toggle and stayed live even while disabled, so touching it to
@@ -615,22 +632,13 @@ function StyleControls({
             <FieldGroup label="Box Corner Radius" value={plateStyle.backgroundBorderRadius} onChange={(v) => onGlobalChange({ backgroundBorderRadius: v as number })} min={0} max={40} unit="px" />
             <div className="flex items-center justify-between">
               <span className="text-xs text-zinc-500">Full-width bar</span>
-              <button
-                type="button"
-                aria-pressed={!!plateStyle.backgroundFullWidth}
-                onClick={() => onGlobalChange({ backgroundFullWidth: !plateStyle.backgroundFullWidth })}
-                className={`
-                  relative w-10 h-5 rounded-full transition-colors
-                  ${plateStyle.backgroundFullWidth ? "bg-[#00FF66]" : "bg-zinc-700"}
-                `}
-              >
-                <span
-                  className={`
-                    absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
-                    ${plateStyle.backgroundFullWidth ? "translate-x-5" : "translate-x-0.5"}
-                  `}
-                />
-              </button>
+              <Toggle
+                checked={!!plateStyle.backgroundFullWidth}
+                label="Full-width bar"
+                onChange={() =>
+                  onGlobalChange({ backgroundFullWidth: !plateStyle.backgroundFullWidth })
+                }
+              />
             </div>
           </div>
         )}
@@ -838,6 +846,7 @@ function FieldGroup({
   step = 1,
   unit = "",
   type = "number",
+  disabled = false,
 }: {
   label: string;
   value?: number | string;
@@ -847,11 +856,14 @@ function FieldGroup({
   step?: number;
   unit?: string;
   type?: "number" | "color";
+  disabled?: boolean;
 }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <label className="text-xs text-zinc-500">{label}</label>
+        <label className={`text-xs ${disabled ? "text-zinc-700" : "text-zinc-500"}`}>
+          {label}
+        </label>
         {value !== undefined && (
           <span className="text-xs text-zinc-600 font-mono">
             {value}
@@ -880,9 +892,10 @@ function FieldGroup({
           min={min}
           max={max}
           step={step}
+          disabled={disabled}
           value={typeof value === "number" ? value : (min ?? 0)}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="w-full"
+          className="w-full disabled:opacity-40 disabled:cursor-not-allowed"
           style={sliderFillStyle(
             typeof value === "number" ? value : (min ?? 0),
             min ?? 0,

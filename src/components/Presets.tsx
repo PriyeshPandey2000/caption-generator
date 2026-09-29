@@ -6,6 +6,7 @@ import { GlobalStyle, WordStyle, SfxDensity, SfxVolume, SfxPackId } from "@/core
 import { resolveChoreography } from "@/core/choreography";
 import { cssShadow, resolveShadowSpec, shadowPatchForLook } from "@/core/shadow";
 import { sliderFillStyle } from "./rangeFill";
+import { Toggle } from "./Toggle";
 
 const CUSTOM_PRESETS_KEY = "captionlab_custom_presets";
 
@@ -534,20 +535,11 @@ function CameraMovementControl() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-xs text-zinc-300">Camera zoom on emphasis</span>
-        <button
-          onClick={() => toggleCameraMovement(!enabled)}
-          className={`
-            relative w-10 h-5 rounded-full transition-colors
-            ${enabled ? "bg-[#00FF66]" : "bg-zinc-700"}
-          `}
-        >
-          <span
-            className={`
-              absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
-              ${enabled ? "translate-x-5" : "translate-x-0.5"}
-            `}
-          />
-        </button>
+        <Toggle
+          checked={enabled}
+          label="Camera zoom on emphasis"
+          onChange={() => toggleCameraMovement(!enabled)}
+        />
       </div>
 
       {enabled && (
@@ -610,23 +602,11 @@ function SfxControl() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-xs text-zinc-300">Sound on emphasis</span>
-        <button
-          type="button"
-          aria-label="Toggle sound effects on emphasis"
-          aria-pressed={sfx.enabled}
-          onClick={() => setSfxEnabled(!sfx.enabled)}
-          className={`
-            relative w-10 h-5 rounded-full transition-colors
-            ${sfx.enabled ? "bg-[#00FF66]" : "bg-zinc-700"}
-          `}
-        >
-          <span
-            className={`
-              absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
-              ${sfx.enabled ? "translate-x-5" : "translate-x-0.5"}
-            `}
-          />
-        </button>
+        <Toggle
+          checked={sfx.enabled}
+          label="Toggle sound effects on emphasis"
+          onChange={() => setSfxEnabled(!sfx.enabled)}
+        />
       </div>
 
       {sfx.enabled && (
@@ -840,22 +820,11 @@ function MusicControl() {
 
           <div className="flex items-center justify-between">
             <span className="text-xs text-zinc-500">Lower under speech</span>
-            <button
-              type="button"
-              aria-pressed={music.duckEnabled}
-              onClick={() => setMusicDuck(!music.duckEnabled)}
-              className={`
-                relative w-10 h-5 rounded-full transition-colors
-                ${music.duckEnabled ? "bg-[#00FF66]" : "bg-zinc-700"}
-              `}
-            >
-              <span
-                className={`
-                  absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform
-                  ${music.duckEnabled ? "translate-x-5" : "translate-x-0.5"}
-                `}
-              />
-            </button>
+            <Toggle
+              checked={music.duckEnabled}
+              label="Lower under speech"
+              onChange={() => setMusicDuck(!music.duckEnabled)}
+            />
           </div>
         </>
       )}
