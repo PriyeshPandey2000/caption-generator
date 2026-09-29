@@ -592,7 +592,7 @@ export default function Editor() {
                   <p className="text-sm text-zinc-300 mt-2">
                     No editing experience needed.
                   </p>
-                  <div className="mt-5 w-full max-w-xl">
+                  <div className="mt-5 w-full max-w-2xl">
                     <div className="grid grid-cols-2 gap-2">
                       <FeatureCard icon="upload" label="Upload → styled captions in seconds" />
                       <FeatureCard icon="drag" label="Drag & scale — “make it big type”" />
@@ -794,7 +794,7 @@ const FEATURE_ICONS: Record<string, string> = {
 
 function FeatureCard({ icon, label }: { icon: string; label: string }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 transition-colors hover:border-[#00ff66]/25 hover:bg-white/[0.05]">
+    <div className="flex items-center gap-2.5 min-h-[52px] rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 transition-colors hover:border-[#00ff66]/25 hover:bg-white/[0.05]">
       <div className="shrink-0 w-7 h-7 rounded-lg bg-[#00ff66]/10 flex items-center justify-center">
         <svg className="w-3.5 h-3.5 text-[#00ff66]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={FEATURE_ICONS[icon]} />

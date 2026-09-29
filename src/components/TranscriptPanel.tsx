@@ -10,6 +10,19 @@ import { isSingleToken } from "@/core/dictionary";
 // most often — highlighting them draws the eye to what's worth double-checking.
 const NOTABLE_WORD = /\d/;
 
+// Word selection is modifier-click, so the hint has to name the key the user
+// actually has. Every selection handler accepts both metaKey and ctrlKey, so
+// this only picks which one to *print* — a wrong guess would teach a Windows
+// user to press a key that does nothing here. Read once: the platform can't
+// change mid-session. This panel never renders on the server (it returns null
+// without a transcription, and a transcription is only ever restored from
+// IndexedDB on the client), so touching `navigator` can't cause a hydration
+// mismatch.
+const MOD_KEY =
+  typeof navigator !== "undefined" && /mac|iphone|ipad|ipod/i.test(navigator.userAgent)
+    ? "⌘"
+    : "Ctrl";
+
 // Maps a flat character offset into a space-joined sentence back to which
 // space-separated word it falls within (clamped to the last word if the
 // offset lands past the end, e.g. a click in trailing whitespace).
@@ -49,6 +62,16 @@ export default function TranscriptPanel({ onClose }: { onClose?: () => void }) {
             {transcription.words.length} words ·{" "}
             {editMode ? "click anywhere and type" : "click to jump — pencil to edit"}
           </p>
+          {/* A plain click seeks *and* selects the whole sentence (see
+              onSelect below), but the line above only advertises the seek, so
+              selection looked like it happened on its own. Edit mode routes
+              clicks through a different handler with no per-word modifier, so
+              the hint would be false there. */}
+          {!editMode && (
+            <p className="text-[10px] text-zinc-500 mt-0.5">
+              Click a sentence to select it · {MOD_KEY}-click for one word
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button

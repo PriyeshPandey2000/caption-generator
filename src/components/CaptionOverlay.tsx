@@ -609,6 +609,15 @@ function WordSpan({
         WebkitTextStroke: style.strokeWidth
           ? `${style.strokeWidth * scaleFactor}px ${style.strokeColor}`
           : undefined,
+        // The export canvas strokes first and fills over it (`strokeText` then
+        // `fillText` in scene-renderer's paintWord), so the outline sits behind
+        // the glyph and only its outer half is visible. `-webkit-text-stroke`
+        // defaults to the opposite: the stroke paints over the fill and eats
+        // into the letterform, so every stroked caption rendered thinner and
+        // heavier-outlined on screen than in the exported file. `paint-order`
+        // defaults to `normal` (fill, stroke, mark); stating `stroke fill`
+        // here is what makes CSS agree with the canvas.
+        paintOrder: "stroke fill",
         // Resolved through the same helper the export canvas uses, then spelled
         // as CSS. `animStyle` spreads after this, so a blooming glow wins here
         // exactly as it does in the export.
