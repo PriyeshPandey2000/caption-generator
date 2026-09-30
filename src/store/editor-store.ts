@@ -802,41 +802,23 @@ export const useEditorStore = create<EditorState>((set) => ({
     // report a stale failure against demo state, then queue the clear behind
     // it — enqueueVideoOp serializes, so the clear can't race a pending save.
     ++videoSaveGeneration;
-    const demoTranscription = createDemoTranscription();
-    set((s) => {
-      const ve = s.project.globalStyle.videoEffects;
-      // Camera zoom on by default for the demo: it's the single biggest
-      // "does this look premium" signal on first play, and (unlike SFX) it's
-      // pure CSS with no audio-autoplay/asset-loading risk. Only seed it when
-      // the project doesn't already have camera events of its own — a user
-      // who's already toggled/tuned this shouldn't get overridden by
-      // re-entering the demo.
-      const emphasisIds = demoTranscription.words
-        .filter((w) => w.animation?.emphasis)
-        .map((w) => w.id);
-      const cameraEvents =
-        ve.cameraEvents.length > 0
-          ? ve.cameraEvents
-          : buildCameraTimeline(demoTranscription.words, emphasisIds, ve);
-      return {
-        project: {
-          ...s.project,
-          transcription: demoTranscription,
-          // The sample captions ship a starter dictionary entry so the Dictionary
-          // panel demonstrates a real correction out of the box; an in-session
-          // project dictionary wins when it already has entries.
-          dictionary:
-            s.project.dictionary.length > 0
-              ? s.project.dictionary
-              : createDemoDictionary(),
-          error: null,
-          demoMode: true,
-          globalStyle: { ...s.project.globalStyle, videoEffects: { ...ve, cameraEvents } },
-        },
-        videoFile: null,
-        videoUrl: DEMO_VIDEO_URL,
-      };
-    });
+    set((s) => ({
+      project: {
+        ...s.project,
+        transcription: createDemoTranscription(),
+        // The sample captions ship a starter dictionary entry so the Dictionary
+        // panel demonstrates a real correction out of the box; an in-session
+        // project dictionary wins when it already has entries.
+        dictionary:
+          s.project.dictionary.length > 0
+            ? s.project.dictionary
+            : createDemoDictionary(),
+        error: null,
+        demoMode: true,
+      },
+      videoFile: null,
+      videoUrl: DEMO_VIDEO_URL,
+    }));
     if (typeof window !== "undefined") {
       enqueueStorageOp(clearVideoFromStorage).then((cleared) => {
         if (!cleared) {
