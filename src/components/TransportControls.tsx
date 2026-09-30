@@ -48,7 +48,8 @@ export default function TransportControls({
   }, []);
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center justify-between gap-1">
+      <div className="flex items-center gap-1">
       <button
         onClick={() => skip(-5)}
         title="Back 5s"
@@ -121,6 +122,10 @@ export default function TransportControls({
           </div>
         )}
       </div>
+      </div>
+      <span className="text-[11px] text-zinc-500 hidden sm:inline whitespace-nowrap">
+        💡 Double-click a caption to edit
+      </span>
     </div>
   );
 }
