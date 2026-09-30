@@ -777,7 +777,7 @@ function PresetPreview({ style }: { style?: Partial<WordStyle> }) {
   return (
     <div className="mt-2 h-8 rounded-md bg-zinc-800 border border-zinc-700/50 flex items-center justify-center px-2 overflow-hidden">
       <span style={previewStyle} className="whitespace-nowrap">
-        Big Caption
+        Caption
       </span>
     </div>
   );
