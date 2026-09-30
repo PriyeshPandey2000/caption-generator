@@ -100,7 +100,7 @@ export default function Editor() {
       ? localStorage.getItem("groq_api_key") || ""
       : ""
   );
-  const [activePanel, setActivePanel] = useState<Panel>("inspector");
+  const [activePanel, setActivePanel] = useState<Panel>("presets");
   const [showTranscript, setShowTranscript] = useState(true);
   const [showStylePanel, setShowStylePanel] = useState(true);
   // Root URL always shows the hero first on a fresh visit. Restore is scoped
