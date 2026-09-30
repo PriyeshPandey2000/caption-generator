@@ -56,6 +56,12 @@ export default function CaptionOverlay({
   const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [frame, setFrame] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [wordFrame, setWordFrame] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  // Drives the hover hint below — native `title` tooltips (on each word) and
+  // the row's `cursor-move` already carry this information, but both are
+  // easy to miss (delayed, tiny, or just a cursor shape). A visible on-hover
+  // line surfaces the same two affordances without waiting for a user to
+  // stumble onto them.
+  const [groupHovered, setGroupHovered] = useState(false);
 
   const activeGroup = useMemo(() => {
     if (!transcription) return null;
@@ -298,6 +304,8 @@ export default function CaptionOverlay({
           ref={rowRef}
           className="flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1 pointer-events-auto cursor-move"
           onClick={(e) => e.stopPropagation()}
+          onMouseEnter={() => setGroupHovered(true)}
+          onMouseLeave={() => setGroupHovered(false)}
           onMouseDown={(e) => {
             if (!activeGroup) return;
             selectCaptionGroup(activeGroup.id);
@@ -362,6 +370,12 @@ export default function CaptionOverlay({
             />
           ))}
         </div>
+
+        {groupHovered && (
+          <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 pointer-events-none whitespace-nowrap text-[11px] text-white bg-black/80 rounded px-2 py-1 z-20">
+            ✥ Drag to move · Double-click a word to edit
+          </div>
+        )}
 
         {isSelected && frame && (
           <div
