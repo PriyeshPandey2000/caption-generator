@@ -624,7 +624,7 @@ export default function Editor() {
                     <div className="grid grid-cols-2 gap-2">
                       <FeatureCard icon="upload" label="Upload → styled captions in seconds" />
                       <FeatureCard icon="drag" label="Drag & scale — “make it big type”" />
-                      <FeatureCard icon="sparkle" label="AI choreography in plain English" />
+                      <FeatureCard icon="sparkle" label="9 ready-made styles — Hormozi, MrBeast & more" />
                       <FeatureCard icon="export" label="Export MP4 / SRT / VTT — all in-browser" />
                     </div>
                   </div>
