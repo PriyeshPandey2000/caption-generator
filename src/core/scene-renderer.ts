@@ -325,7 +325,13 @@ export function evaluateWordVisuals(
 
 export interface LayoutWord {
   visuals: WordVisuals;
+  /** Advance width of just the glyphs — what `paintWord` draws text at. */
   width: number;
+  /** What the word occupies in the line: `width` plus any active pill's
+   * horizontal padding. The DOM reserves this because the pill is real CSS
+   * padding on the span, so the export has to reserve it too or adjacent
+   * highlighted words overlap and the line overflows its own measured width. */
+  advanceWidth: number;
   ascent: number;
   descent: number;
 }
@@ -356,9 +362,14 @@ function measureWordInContext(
   const descent = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent ?? v.fontPx * 0.2;
   let width = m.width;
   if (v.letterSpacingPx !== 0 && v.text.length > 0) {
+    // CSS `letter-spacing` is added after EVERY character, the last one
+    // included, so a tracked span's border box is `sum(advances) + n*spacing`.
+    // Subtracting the trailing gap (as this once did) made every tracked word
+    // measure one spacing unit too narrow, so the export drew each word short
+    // and spaced the caption tighter than the preview by exactly `letterSpacing`
+    // px per word — 12px at the 12px tracking the presets use.
     width = 0;
     for (const ch of v.text) width += ctx.measureText(ch).width + v.letterSpacingPx;
-    width -= v.letterSpacingPx;
   }
   return { width, ascent, descent };
 }
@@ -384,7 +395,7 @@ export function layoutCaptionWords(
     for (const w of words) {
       ascent = Math.max(ascent, w.ascent);
       descent = Math.max(descent, w.descent);
-      width += w.width;
+      width += w.advanceWidth;
     }
     width += GAP_X * (words.length - 1);
     lines.push({ words, width, ascent, descent, baseline: 0 });
@@ -392,19 +403,24 @@ export function layoutCaptionWords(
 
   for (const v of visuals) {
     const m = measureWordInContext(ctx, v);
+    // An active pill is drawn from `x - padH` to `x + width + padH`, so it
+    // claims that much room whether or not it is currently painted. `padH` is
+    // the per-side inset, hence the doubling.
+    const pillPadH = v.backgroundColor ? v.backgroundPaddingPx * 2 : 0;
     const lw: LayoutWord = {
       visuals: v,
       width: m.width,
+      advanceWidth: m.width + pillPadH * 2,
       ascent: m.ascent,
       descent: m.descent,
     };
-    const needed = current.length ? currentWidth + GAP_X + m.width : m.width;
+    const needed = current.length ? currentWidth + GAP_X + lw.advanceWidth : lw.advanceWidth;
     if (current.length && needed > wrapperMaxWidth) {
       pushLine(current);
       current = [];
       currentWidth = 0;
     }
-    const lwWidth = m.width;
+    const lwWidth = lw.advanceWidth;
     currentWidth += current.length === 0 ? lwWidth : GAP_X + lwWidth;
     current.push(lw);
   }
@@ -565,11 +581,25 @@ export function paintCaptionGroup(
     ctx.restore();
   }
 
+  // `layoutCaptionWords` numbers line baselines from the TOP of the text block
+  // (cursor starts at 0, so the first baseline is `line.ascent`), but the plate
+  // above is drawn centred on the origin: `-layout.height / 2 - padVertical`.
+  // Painting the words at their raw baselines therefore dropped the whole text
+  // block by half its own height relative to the box — with a background plate
+  // the captions sat *below* their padding, and the error scaled with font size
+  // and line count. Rebasing the baselines by -height/2 centres the text on the
+  // same origin the plate uses. The DOM path never had this skew because flex
+  // `items-baseline` sizes the plate from the text it wraps.
+  const baselineShift = -layout.height / 2;
   for (const line of layout.lines) {
     let x = -line.width / 2;
     for (const lw of line.words) {
-      paintWord(ctx, lw, x, line.baseline);
-      x += lw.width + GAP_X;
+      // `x` addresses the word's box, which the pill padding widens equally on
+      // both sides — so the glyphs start half the pill in, matching the DOM
+      // where the padding sits inside the span and the text is inset by it.
+      const pillPadH = lw.visuals.backgroundColor ? lw.visuals.backgroundPaddingPx * 2 : 0;
+      paintWord(ctx, lw, x + pillPadH, line.baseline + baselineShift);
+      x += lw.advanceWidth + GAP_X;
     }
   }
 
