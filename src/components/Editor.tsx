@@ -193,9 +193,28 @@ export default function Editor() {
     // Seek the bed track to the transport only when they drift apart, so the
     // timeline scrubbing and the video's own advance dictate the position
     // instead of resync fighting the element's natural playback.
-    if (!Number.isFinite(el.duration)) return;
-    if (Math.abs(el.currentTime - currentTime) > 0.35) {
-      el.currentTime = Math.min(currentTime, el.duration - 0.05);
+    if (!Number.isFinite(el.duration) || el.duration <= 0) return;
+    if (el.loop) {
+      // The bed is meant to loop for the whole clip, so the transport position
+      // maps into the track by modulo. Clamping it (as this once did) meant
+      // that once the transport passed the track's duration the target was
+      // pinned at `duration - 0.05`, so any bed shorter than the video stopped
+      // advancing and held its final 50ms — a buzz, not a loop. The export has
+      // always looped correctly (`-stream_loop -1` in ExportPanel), so this
+      // also restores preview/export parity.
+      const mod = (t: number) => ((t % el.duration) + el.duration) % el.duration;
+      // Drift has to be compared in loop-relative terms too. A raw subtraction
+      // reads the track at 15.99s and the transport at 16.02s as 15.97s apart,
+      // which resyncs at every loop wrap and fights the element's own playback;
+      // folding the difference into the nearest equivalent keeps a wrap from
+      // registering as drift at all.
+      const raw = mod(currentTime - el.currentTime);
+      const drift = raw > el.duration / 2 ? raw - el.duration : raw;
+      if (Math.abs(drift) > 0.35) {
+        el.currentTime = mod(currentTime);
+      }
+    } else if (Math.abs(el.currentTime - currentTime) > 0.35) {
+      el.currentTime = Math.min(currentTime, Math.max(0, el.duration - 0.05));
     }
   }, [currentTime, music.url, music.volume, music.duckEnabled, transcription]);
 
