@@ -395,7 +395,7 @@ export default function VideoPreview() {
           className={`relative h-full bg-black overflow-hidden ${
             cropActive
               ? "aspect-[9/16] max-w-full ring-1 ring-white/15 cursor-grab active:cursor-grabbing select-none"
-              : "w-full"
+              : ""
           }`}
           // Sized from the same displayedVideoWidth/Height the caption overlay
           // uses below, not left to aspect-ratio + max-w-full + h-full: when
@@ -403,15 +403,24 @@ export default function VideoPreview() {
           // height, max-w-full clamps the width but CSS leaves the (already
           // definite) h-full height alone, so the box ends up taller than its
           // own 9:16 shape and drifts out of sync with the overlay's rect.
-          style={
-            cropActive
-              ? {
-                  touchAction: "none",
-                  width: displayedVideoWidth || undefined,
-                  height: displayedVideoHeight || undefined,
-                }
-              : undefined
-          }
+          //
+          // Sized in the uncropped case too (previously just "w-full", full
+          // container width): that let this box be a different aspect ratio
+          // than the video's own object-contain fit, so the <video> inside
+          // carried its own internal letterbox margin. Camera zoom scales
+          // this whole box via zoomRef below — scaling a box that's bigger
+          // than the actual picture scales the empty margin right along with
+          // it, so the letterbox visibly shrank and grew as zoom pulsed,
+          // reading as the frame randomly stepping outside its own bounds.
+          // Matching this box to the video's true rendered rect makes
+          // object-contain a no-op: no internal margin left for zoom to
+          // distort. The flex `items-center justify-center` on the parent
+          // still centers it now that it's no longer full-width.
+          style={{
+            touchAction: cropActive ? "none" : undefined,
+            width: displayedVideoWidth || undefined,
+            height: displayedVideoHeight || undefined,
+          }}
         >
           <div
             ref={zoomRef}
