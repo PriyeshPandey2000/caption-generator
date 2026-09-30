@@ -42,7 +42,6 @@ export const defaultWordStyle: WordStyle = {
   textTransform: "uppercase",
   fontWeight: 900,
   letterSpacing: 0,
-  textAlign: "center",
   maxWidth: 800,
   backgroundColor: "transparent",
   backgroundPadding: 6,

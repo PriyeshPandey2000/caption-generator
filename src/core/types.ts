@@ -25,10 +25,8 @@ export interface WordStyle {
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
   fontWeight?: number;
   letterSpacing?: number;
-  lineHeight?: number;
   opacity?: number;
   maxWidth?: number;
-  textAlign?: "left" | "center" | "right";
 }
 
 export interface WordMotion {
