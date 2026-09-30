@@ -102,7 +102,14 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
         letterSpacing: 1,
       },
       motion: {
-        entrance: { type: "scale", scaleFrom: 40, scaleTo: 120, duration: 250, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
+        // scaleFrom 40 meant the entering word started at under half its
+        // settled size, then overshot to 120% — a ~3x swing. Since only the
+        // word currently in its entrance window balloons while its neighbors
+        // sit at their already-settled 100%, that read as one word randomly
+        // ballooning huge next to normal-sized text, not a punch. MrBeast's
+        // already-tuned entrance (60→110) is the reference for "punchy but
+        // not jarring" — this stays a touch snappier at 65→112.
+        entrance: { type: "scale", scaleFrom: 65, scaleTo: 112, duration: 250, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
         // Flash to yellow on the active word — previously just a size bump
         // with no color change at all, which made "Punchy" indistinguishable
         // from a plain scale-pop and a near-exact duplicate of the AI-only
