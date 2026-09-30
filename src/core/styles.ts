@@ -16,20 +16,21 @@ export const FONT_FAMILY_OPTIONS = [
   { label: "Comic Sans", value: "'Comic Sans MS', 'Chalkboard SE', sans-serif" },
 ];
 
-// Default caption look — modeled on Alex Hormozi's short-form style: bold
-// Anton, all-caps, thick black stroke (no background box), tight
-// near-zero letter-spacing, sitting in the lower third. Emphasis is done by
-// color (yellow) alone, not size — his captions keep every word the same
-// size within a block; ballooning the active word is the MrBeast look, not his.
-// Font is Anton, not Montserrat — Montserrat has a documented rendering bug
-// with -webkit-text-stroke (google/fonts#4212) where thick strokes choke
-// small letter counters (P/O/G/S) into solid blobs.
+// Default caption look — matches the "Karaoke" preset (see Presets.tsx):
+// clean Inter caps, no stroke (the pill carries contrast instead), and a
+// per-word highlight pill that follows whichever word is currently spoken —
+// the whole line stays visible, only the active word gets the green
+// background + black text, then it moves on as playback continues. Picked
+// as the default because it reads as an immediate, obviously-designed result
+// on first load rather than a blank/plain caption. Kept byte-for-byte equal
+// to the Karaoke preset's patch so a fresh project already shows it as the
+// active preset instead of looking like a separate, unlabeled style.
 export const defaultWordStyle: WordStyle = {
-  fontFamily: "var(--font-anton), Impact, 'Arial Black', sans-serif",
-  fontSize: 52,
+  fontFamily: "Inter, system-ui, sans-serif",
+  fontSize: 48,
   color: "#FFFFFF",
   strokeColor: "#000000",
-  strokeWidth: 1,
+  strokeWidth: 0,
   // The four raw fields below are the "tight" look (see core/shadow.ts) and
   // stay the source of truth; the label only drives the Inspector's segmented
   // control. Kept in sync by hand — shadowPatchForLook("tight") must equal
@@ -40,36 +41,25 @@ export const defaultWordStyle: WordStyle = {
   shadowOffsetX: 0,
   shadowOffsetY: 1,
   textTransform: "uppercase",
-  fontWeight: 900,
+  fontWeight: 800,
   letterSpacing: 0,
   maxWidth: 800,
   backgroundColor: "transparent",
   backgroundPadding: 6,
-  backgroundBorderRadius: 8,
+  backgroundBorderRadius: 10,
 };
 
 export const defaultMotion: WordMotion = {
-  entrance: {
-    type: "scale",
-    scaleFrom: 80,
-    scaleTo: 100,
-    duration: 180,
-    easing: "cubic-bezier(0.34, 1.56, 0.64, 1)",
-  },
+  entrance: { type: "fade", from: 0, to: 1, duration: 150 },
   active: {
     type: "scale",
     scaleFrom: 100,
-    scaleTo: 100,
+    scaleTo: 103,
     duration: 100,
-    color: "#FFD700",
+    color: "#000000",
+    backgroundColor: "#00FF66",
   },
-  exit: {
-    type: "fade",
-    from: 1,
-    to: 0,
-    duration: 120,
-    easing: "ease-out",
-  },
+  exit: { type: "fade", from: 1, to: 0, duration: 150 },
 };
 
 export const defaultTransform: WordTransform = {
