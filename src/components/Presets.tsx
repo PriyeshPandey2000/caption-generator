@@ -103,7 +103,12 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
       },
       motion: {
         entrance: { type: "scale", scaleFrom: 40, scaleTo: 120, duration: 250, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
-        active: { type: "scale", scaleTo: 115, duration: 100, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
+        // Flash to yellow on the active word — previously just a size bump
+        // with no color change at all, which made "Punchy" indistinguishable
+        // from a plain scale-pop and a near-exact duplicate of the AI-only
+        // "high_energy" bundle. Impact-edit flashes are the genre convention
+        // this name is supposed to deliver on.
+        active: { type: "scale", scaleTo: 115, duration: 100, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)", color: "#FFFF00" },
         exit: { type: "scale", scaleFrom: 100, scaleTo: 0, duration: 150 },
       },
     },
@@ -143,10 +148,18 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
         fontWeight: 900,
         textTransform: "uppercase",
         letterSpacing: 1,
+        // Hollow text had zero shadow, so on a light or busy background the
+        // outline itself could nearly vanish — grounds it without filling
+        // the letterforms in.
+        ...shadowPatchForLook("soft"),
       },
       motion: {
         entrance: { type: "fade", from: 0, to: 1, duration: 150 },
-        active: { type: "scale", scaleFrom: 100, scaleTo: 106, duration: 100 },
+        // The active word fills solid white while it's spoken, then goes
+        // hollow again — an outline-to-solid morph nothing else in the set
+        // does. `color` already exists as an active-phase field (it sets
+        // text fill), just unused here before.
+        active: { type: "scale", scaleFrom: 100, scaleTo: 106, duration: 100, color: "#FFFFFF" },
         exit: { type: "fade", from: 1, to: 0, duration: 150 },
       },
     },
