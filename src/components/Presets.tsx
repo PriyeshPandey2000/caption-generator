@@ -46,6 +46,61 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
     },
   },
   {
+    name: "Karaoke",
+    style: {
+      style: {
+        fontFamily: "Inter, system-ui, sans-serif",
+        fontSize: 48,
+        color: "#FFFFFF",
+        strokeWidth: 0,
+        fontWeight: 800,
+        textTransform: "uppercase",
+        letterSpacing: 0,
+        backgroundPadding: 6,
+        backgroundBorderRadius: 10,
+        ...shadowPatchForLook("tight"),
+      },
+      motion: {
+        entrance: { type: "fade", from: 0, to: 1, duration: 150 },
+        // The pill (backgroundColor) only paints while a word is spoken — it's
+        // an AnimationRecipe field, not a WordStyle one, so unlike Classic/Boxed
+        // there is no group-level box: only the current word gets a highlight,
+        // and it moves as playback does.
+        active: {
+          type: "scale",
+          scaleFrom: 100,
+          scaleTo: 103,
+          duration: 100,
+          color: "#000000",
+          backgroundColor: "#00FF66",
+        },
+        exit: { type: "fade", from: 1, to: 0, duration: 150 },
+      },
+    },
+  },
+  {
+    name: "Boxed",
+    style: {
+      style: {
+        fontFamily: "Inter, system-ui, sans-serif",
+        fontSize: 48,
+        color: "#FFFFFF",
+        strokeWidth: 0,
+        fontWeight: 800,
+        textTransform: "uppercase",
+        letterSpacing: 1,
+        backgroundColor: "#000000",
+        backgroundPadding: 8,
+        backgroundBorderRadius: 6,
+      },
+      motion: {
+        entrance: { type: "fade", from: 0, to: 1, duration: 150 },
+        active: { type: "scale", scaleFrom: 100, scaleTo: 100, duration: 100, color: "#00FF66" },
+        exit: { type: "fade", from: 1, to: 0, duration: 150 },
+      },
+    },
+  },
+  {
     name: "MrBeast",
     style: {
       style: {
@@ -172,28 +227,6 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
     },
   },
   {
-    name: "Boxed",
-    style: {
-      style: {
-        fontFamily: "Inter, system-ui, sans-serif",
-        fontSize: 48,
-        color: "#FFFFFF",
-        strokeWidth: 0,
-        fontWeight: 800,
-        textTransform: "uppercase",
-        letterSpacing: 1,
-        backgroundColor: "#000000",
-        backgroundPadding: 8,
-        backgroundBorderRadius: 6,
-      },
-      motion: {
-        entrance: { type: "fade", from: 0, to: 1, duration: 150 },
-        active: { type: "scale", scaleFrom: 100, scaleTo: 100, duration: 100, color: "#00FF66" },
-        exit: { type: "fade", from: 1, to: 0, duration: 150 },
-      },
-    },
-  },
-  {
     name: "Minimal",
     style: {
       style: {
@@ -209,39 +242,6 @@ const presets: { name: string; style: Partial<GlobalStyle> }[] = [
       motion: {
         entrance: { type: "fade", from: 0, to: 1, duration: 200 },
         active: { type: "scale", scaleFrom: 100, scaleTo: 108, duration: 100 },
-        exit: { type: "fade", from: 1, to: 0, duration: 150 },
-      },
-    },
-  },
-  {
-    name: "Karaoke",
-    style: {
-      style: {
-        fontFamily: "Inter, system-ui, sans-serif",
-        fontSize: 48,
-        color: "#FFFFFF",
-        strokeWidth: 0,
-        fontWeight: 800,
-        textTransform: "uppercase",
-        letterSpacing: 0,
-        backgroundPadding: 6,
-        backgroundBorderRadius: 10,
-        ...shadowPatchForLook("tight"),
-      },
-      motion: {
-        entrance: { type: "fade", from: 0, to: 1, duration: 150 },
-        // The pill (backgroundColor) only paints while a word is spoken — it's
-        // an AnimationRecipe field, not a WordStyle one, so unlike Classic/Boxed
-        // there is no group-level box: only the current word gets a highlight,
-        // and it moves as playback does.
-        active: {
-          type: "scale",
-          scaleFrom: 100,
-          scaleTo: 103,
-          duration: 100,
-          color: "#000000",
-          backgroundColor: "#00FF66",
-        },
         exit: { type: "fade", from: 1, to: 0, duration: 150 },
       },
     },
