@@ -25,6 +25,7 @@ const EXIT_FADE_DEFAULT_DURATION_MS = 120;
 export default function CaptionOverlay({
   onBackgroundClick,
   scaleFactor = 1,
+  cropActive = false,
 }: {
   /** Fired on a plain click (no drag) on empty overlay space — lets the
    * host (VideoPreview) keep its click-to-play/pause behavior even though
@@ -37,6 +38,12 @@ export default function CaptionOverlay({
    * not a wrapper transform — a transform would leave the selection frame,
    * drag handles and word hit-testing at unscaled geometry. */
   scaleFactor?: number;
+  /** True while the platform crop (TikTok/Reels/Shorts) is active. That crop
+   * box sits beneath this overlay and owns background drags for reframing —
+   * without this, the same mousedown also started a marquee-select here
+   * (this overlay fills the same area), so dragging to reframe visibly drew
+   * a selection rectangle on top of the video at the same time. */
+  cropActive?: boolean;
 }) {
   const transcription = useEditorStore((s) => s.project.transcription);
   const globalStyle = useEditorStore((s) => s.project.globalStyle);
@@ -207,6 +214,7 @@ export default function CaptionOverlay({
       className="absolute inset-0"
       onMouseDown={(e) => {
         if (e.target !== e.currentTarget) return;
+        if (cropActive) return;
         const startX = e.clientX;
         const startY = e.clientY;
         // Captured once here (an event handler, not render) so the render

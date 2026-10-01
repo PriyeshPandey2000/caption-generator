@@ -509,7 +509,7 @@ export default function VideoPreview() {
                   "linear-gradient(to top, rgba(0,0,0,0.65), transparent)",
               }}
             />
-            <CaptionOverlay onBackgroundClick={handlePlayPause} scaleFactor={captionScale} />
+            <CaptionOverlay onBackgroundClick={handlePlayPause} scaleFactor={captionScale} cropActive={cropActive} />
           </div>
           <PlatformPreviewOverlay platform={previewPlatform} />
           <ReframeHint key={previewPlatform} active={cropActive} />
