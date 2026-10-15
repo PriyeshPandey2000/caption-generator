@@ -630,7 +630,6 @@ export default function Editor() {
             <div className="flex-1 p-4 overflow-hidden">
             {!(entered && transcription) ? (
               <div className="relative h-full flex flex-col items-center justify-center gap-6 px-4">
-                <GitHubLink className="absolute top-0 right-0 p-2 text-zinc-400 hover:text-white transition-colors" />
                 <div className="text-center max-w-2xl">
                   <h2 className="font-display text-4xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
                     Captions that make people{" "}
