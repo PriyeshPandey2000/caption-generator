@@ -84,6 +84,10 @@ function getVideoDuration(file: File): Promise<number> {
 // under the tab's memory budget.
 const MAX_UPLOAD_BYTES = 300 * 1024 * 1024;
 const MAX_TRANSCRIBE_SECONDS = 30 * 60;
+// Must match WEBGPU_SAFE_SECONDS in whisper.worker.ts: longer clips run on the
+// CPU backend to avoid the open transformers.js per-chunk WebGPU leak.
+const LONG_CLIP_SECONDS = 2 * 60;
+const CPU_ONLY_WARNING_SECONDS = 10 * 60;
 
 export default function Editor() {
   const [activePanel, setActivePanel] = useState<Panel>("presets");
@@ -119,6 +123,9 @@ export default function Editor() {
   const isTranscribing = useEditorStore((s) => s.project.isTranscribing);
   const [transcribeStatus, setTranscribeStatus] = useState(
     "Transcribing your video…"
+  );
+  const [transcribeNote, setTranscribeNote] = useState(
+    "This can take a moment for longer clips"
   );
   const error = useEditorStore((s) => s.project.error);
   const setTranscription = useEditorStore((s) => s.setTranscription);
@@ -388,6 +395,24 @@ export default function Editor() {
           );
         }
 
+        const hasWebGpu =
+          typeof navigator !== "undefined" && "gpu" in navigator;
+        if (
+          !hasWebGpu &&
+          knownDuration &&
+          knownDuration > CPU_ONLY_WARNING_SECONDS
+        ) {
+          throw new Error(
+            `This browser has no WebGPU, so a ${Math.ceil(knownDuration / 60)} min clip would run on the CPU and can take a very long time. Use Chrome or Edge with WebGPU, or split the clip into shorter parts.`
+          );
+        }
+
+        setTranscribeNote(
+          knownDuration && knownDuration > LONG_CLIP_SECONDS
+            ? `${Math.ceil(knownDuration / 60)} min clip — using the CPU backend to avoid the WebGPU memory bug. Keep this tab open; it can take several minutes.`
+            : "This can take a moment for longer clips"
+        );
+
         setTranscribeStatus("Extracting audio…");
         // Aggregate model-load progress can still dip when a shard joins the
         // total mid-download. Show the highest value seen so the number only
@@ -620,7 +645,7 @@ export default function Editor() {
                       <div aria-hidden="true" className="w-8 h-8 border-2 border-[#00FF66] border-t-transparent rounded-full animate-spin" />
                       <p className="text-sm text-zinc-200">{transcribeStatus}</p>
                       <p className="text-xs text-zinc-500">
-                        This can take a moment for longer clips
+                        {transcribeNote}
                       </p>
                     </div>
                   </div>
