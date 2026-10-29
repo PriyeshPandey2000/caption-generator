@@ -114,7 +114,9 @@ function getWorker(): Worker {
     if (data?.type === "error") {
       const job = pending;
       pending = null;
-      job?.reject(new Error(data.message || "Transcription failed"));
+      job?.reject(
+        new Error(friendlyError(data.message || "Transcription failed"))
+      );
       scheduleIdleUnload();
     }
   });
@@ -130,6 +132,13 @@ function getWorker(): Worker {
 
   worker = next;
   return next;
+}
+
+function friendlyError(message: string): string {
+  if (/mapAsync|external Instance|device lost|out of memory/i.test(message)) {
+    return `The browser GPU ran out of memory during transcription. Reload the page if the GPU was lost, then try a shorter clip or close other tabs. (${message})`;
+  }
+  return message;
 }
 
 function extensionOf(file: File): string {
