@@ -32,6 +32,28 @@ type Pending = {
 
 let worker: Worker | null = null;
 let pending: Pending | null = null;
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+// The model + ONNX sessions hold hundreds of MB for as long as the worker
+// lives. Drop it when the user stops transcribing; the model itself stays in
+// the browser Cache API, so the next job reloads without a network download.
+const IDLE_UNLOAD_MS = 30_000;
+
+function cancelIdleUnload(): void {
+  if (idleTimer === null) return;
+  clearTimeout(idleTimer);
+  idleTimer = null;
+}
+
+function scheduleIdleUnload(): void {
+  cancelIdleUnload();
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    if (pending) return;
+    worker?.terminate();
+    worker = null;
+  }, IDLE_UNLOAD_MS);
+}
 
 function getWorker(): Worker {
   if (worker) return worker;
@@ -56,11 +78,10 @@ function getWorker(): Worker {
     };
 
     if (data?.type === "progress") {
-      // `progress_total` is the aggregate across every model file; using it
-      // avoids the percentage resetting to zero as each shard finishes.
+      // Only the aggregate `progress_total` counts. Per-file `progress` events
+      // race with each other and reset the percentage whenever the next shard
+      // starts, which makes the UI jump backwards.
       if (data.status === "progress_total") {
-        pending?.onProgress?.(data.loaded ?? 0, data.total ?? 0, data.status);
-      } else if (data.status === "progress") {
         pending?.onProgress?.(data.loaded ?? 0, data.total ?? 0, data.status);
       }
       return;
@@ -86,6 +107,7 @@ function getWorker(): Worker {
         duration: data.duration ?? 0,
         device: data.device ?? null,
       });
+      scheduleIdleUnload();
       return;
     }
 
@@ -93,12 +115,14 @@ function getWorker(): Worker {
       const job = pending;
       pending = null;
       job?.reject(new Error(data.message || "Transcription failed"));
+      scheduleIdleUnload();
     }
   });
 
   next.addEventListener("error", (event) => {
     const job = pending;
     pending = null;
+    cancelIdleUnload();
     worker?.terminate();
     worker = null;
     job?.reject(new Error(event.message || "Transcription worker crashed"));
@@ -113,10 +137,9 @@ function extensionOf(file: File): string {
   return ext && /^[a-z0-9]{1,6}$/.test(ext) ? ext : "mp4";
 }
 
-// ffmpeg.wasm already ships with the app for export. Decoding to raw 16kHz
-// mono float32 PCM is exactly what the Whisper feature extractor expects, so
-// this skips a second resample and avoids the ~4.5MB serverless body limit
-// entirely — the audio never leaves the browser.
+// Fallback decoder. ffmpeg.wasm copies the whole container into its MEMFS
+// heap before writing PCM, so only use it when the browser cannot decode the
+// container natively.
 async function decodeWithFfmpeg(file: File): Promise<Float32Array> {
   const ffmpeg = new FFmpeg();
   try {
@@ -144,8 +167,9 @@ async function decodeWithFfmpeg(file: File): Promise<Float32Array> {
   }
 }
 
-// Fallback for containers ffmpeg.wasm can't open. `OfflineAudioContext` with a
-// 16kHz rate makes the browser resample during `decodeAudioData`.
+// Native decoder. `OfflineAudioContext` with a 16kHz rate makes the browser
+// resample during `decodeAudioData`, and it avoids ffmpeg's MEMFS copy of the
+// whole video for the common MP4/WebM/MOV cases.
 async function decodeWithWebAudio(file: File): Promise<Float32Array> {
   const arrayBuffer = await file.arrayBuffer();
   const context = new OfflineAudioContext(1, 1, SAMPLE_RATE);
@@ -158,12 +182,12 @@ async function decodeAudio(
   onStatus?: (status: string) => void
 ): Promise<Float32Array> {
   try {
-    onStatus?.("Extracting audio…");
-    return await decodeWithFfmpeg(file);
-  } catch (err) {
-    console.warn("ffmpeg audio extraction failed, using Web Audio:", err);
     onStatus?.("Decoding audio…");
     return await decodeWithWebAudio(file);
+  } catch (err) {
+    console.warn("Web Audio decoding failed, using ffmpeg:", err);
+    onStatus?.("Extracting audio…");
+    return await decodeWithFfmpeg(file);
   }
 }
 
@@ -184,6 +208,7 @@ export async function transcribeInBrowser(
   }
 
   const duration = audio.length / SAMPLE_RATE;
+  cancelIdleUnload();
   const target = getWorker();
 
   return new Promise<BrowserTranscription>((resolve, reject) => {

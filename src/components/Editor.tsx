@@ -78,9 +78,9 @@ function getVideoDuration(file: File): Promise<number> {
 }
 
 // Transcription runs fully in the browser now, so there is no upload or
-// serverless body limit. Keep a sanity cap anyway: decoding hundreds of
-// megabytes of video/audio into float32 PCM can exhaust the tab's memory.
-const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+// serverless body limit. Keep a sanity cap anyway: the container is buffered
+// while audio is decoded, and large files can exhaust the tab's memory.
+const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 
 export default function Editor() {
   const [activePanel, setActivePanel] = useState<Panel>("presets");
@@ -371,13 +371,22 @@ export default function Editor() {
         }
 
         setTranscribeStatus("Extracting audio…");
+        // Aggregate model-load progress can still dip when a shard joins the
+        // total mid-download. Show the highest value seen so the number only
+        // ever moves forward.
+        let bestPercent = 0;
         const detection = await transcribeInBrowser(file, {
           onStatus: setTranscribeStatus,
           onProgress: (loaded, total) => {
             if (!total) return;
-            const percent = Math.min(100, Math.round((loaded / total) * 100));
+            const percent = Math.min(
+              100,
+              Math.round((loaded / total) * 100)
+            );
+            if (percent <= bestPercent) return;
+            bestPercent = percent;
             setTranscribeStatus(
-              `Loading speech model… ${percent}% (one-time download, cached after)`
+              `Loading speech model… ${bestPercent}% (one-time download, cached after)`
             );
           },
         });
