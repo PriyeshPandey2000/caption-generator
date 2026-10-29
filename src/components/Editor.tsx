@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
-import { upload } from "@vercel/blob/client";
 import {
   Group,
   Panel as ResizablePanel,
@@ -10,8 +9,8 @@ import {
 } from "react-resizable-panels";
 import { useEditorStore } from "@/store/editor-store";
 import { parseSegmentsToWords, groupWordsIntoCaptions } from "@/core/captions";
-import { applyTranscriptCleanup } from "@/core/transcript-cleanup";
-import { buildWhisperPrompt, applyDictionary } from "@/core/dictionary";
+import { applyDictionary } from "@/core/dictionary";
+import { transcribeInBrowser } from "@/core/whisper-browser";
 import {
   loadProjectFromStorage,
   clearProjectFromStorage,
@@ -29,7 +28,6 @@ import BackgroundPanel from "@/components/BackgroundPanel";
 import ExportPanel from "@/components/ExportPanel";
 import TransportControls from "@/components/TransportControls";
 import Link from "next/link";
-import ApiKeyInput from "@/components/ApiKeyInput";
 import CaptionOverlay from "@/components/CaptionOverlay";
 import PlatformPreviewOverlay, { PlatformPreviewToggle } from "@/components/PlatformPreviewOverlay";
 import { useDemoPlayback } from "@/hooks/useDemoPlayback";
@@ -79,52 +77,12 @@ function getVideoDuration(file: File): Promise<number> {
   });
 }
 
-// The video is uploaded straight to Vercel Blob (bypassing the serverless
-// function body limit entirely — see the comment in handleFileSelect), so
-// this is a sanity cap against pathological uploads/runaway storage costs,
-// not a real ceiling real videos should hit. Must match onBeforeGenerateToken
-// in src/app/api/blob-upload/route.ts, which enforces the real limit.
+// Transcription runs fully in the browser now, so there is no upload or
+// serverless body limit. Keep a sanity cap anyway: decoding hundreds of
+// megabytes of video/audio into float32 PCM can exhaust the tab's memory.
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
-// Groq's Whisper API caps request size well below what Blob upload lets
-// through (25MB on the free tier, 100MB on dev) — a raw video easily exceeds
-// that. Whisper resamples everything to 16kHz mono internally regardless, so
-// extracting audio at that spec client-side (same ffmpeg.wasm already used
-// for export) loses no accuracy while shrinking a typical video 10-20x,
-// comfortably under Groq's limit for any realistic clip length. If this
-// fails for any reason (no audio track, wasm load failure, ...), the caller
-// falls back to uploading the original video unchanged.
-async function extractAudioForTranscription(file: File): Promise<File> {
-  const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-  const { fetchFile } = await import("@ffmpeg/util");
-
-  const ffmpeg = new FFmpeg();
-  try {
-    await ffmpeg.load();
-    const inExt = file.name.split(".").pop()?.toLowerCase() || "mp4";
-    const inputName = `input.${inExt}`;
-    await ffmpeg.writeFile(inputName, await fetchFile(file));
-    await ffmpeg.exec([
-      "-i", inputName,
-      "-vn",
-      "-ar", "16000",
-      "-ac", "1",
-      "-b:a", "64k",
-      "audio.mp3",
-    ]);
-    const data = (await ffmpeg.readFile("audio.mp3")) as Uint8Array;
-    return new File([new Uint8Array(data)], "audio.mp3", { type: "audio/mpeg" });
-  } finally {
-    ffmpeg.terminate();
-  }
-}
-
 export default function Editor() {
-  const [apiKey, setApiKey] = useState<string>(
-    typeof window !== "undefined"
-      ? localStorage.getItem("groq_api_key") || ""
-      : ""
-  );
   const [activePanel, setActivePanel] = useState<Panel>("presets");
   const [showTranscript, setShowTranscript] = useState(true);
   const [showStylePanel, setShowStylePanel] = useState(true);
@@ -144,8 +102,7 @@ export default function Editor() {
     // transcript was restored is a project whose video blob is about to be
     // read back from IndexedDB asynchronously. From the very first render the
     // editor knows to hold the "Restoring your video…" state until that read
-    // settles instead of falling through to the captions-only surface. (Same
-    // storage-in-initializer pattern as the apiKey state above.)
+    // settles instead of falling through to the captions-only surface.
     if (typeof window === "undefined") return false;
     const saved = loadProjectFromStorage();
     return !!(saved && saved.transcription);
@@ -409,84 +366,54 @@ export default function Editor() {
       try {
         if (file.size > MAX_UPLOAD_BYTES) {
           throw new Error(
-            `Video is too large to upload (${(file.size / (1024 * 1024)).toFixed(1)}MB, limit ~${(MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(0)}MB). Trim or compress the clip and try again.`
+            `Video is too large to process in the browser (${(file.size / (1024 * 1024)).toFixed(1)}MB, limit ~${(MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(0)}MB). Trim or compress the clip and try again.`
           );
         }
 
-        // Groq's Whisper API caps requests at 25-100MB depending on plan,
-        // well below what a raw video can reach. Extract audio-only first so
-        // the upload is small enough regardless of video length; falls back
-        // to the original file if extraction fails for any reason.
-        let uploadFile: File = file;
-        try {
-          setTranscribeStatus("Preparing audio…");
-          uploadFile = await extractAudioForTranscription(file);
-        } catch (err) {
-          console.error("Audio extraction failed, uploading original video:", err);
-        }
-        setTranscribeStatus("Transcribing your video…");
-
-        // Uploaded straight to Vercel Blob from the browser, not through our
-        // own API route: Vercel's serverless functions hard-cap the request
-        // body around 4.5MB regardless of plan or route config, so any video
-        // longer than a few seconds would get rejected by the platform itself
-        // — as a plain-text "Request Entity Too Large" response, before our
-        // route handler ever ran — if it were sent as a multipart body here.
-        // handleUploadUrl authorizes this upload server-side per-request; see
-        // src/app/api/blob-upload/route.ts.
-        const blob = await upload(`transcribe/${uploadFile.name}`, uploadFile, {
-          access: "private",
-          handleUploadUrl: "/api/blob-upload",
-          multipart: true,
+        setTranscribeStatus("Extracting audio…");
+        const detection = await transcribeInBrowser(file, {
+          onStatus: setTranscribeStatus,
+          onProgress: (loaded, total) => {
+            if (!total) return;
+            const percent = Math.min(100, Math.round((loaded / total) * 100));
+            setTranscribeStatus(
+              `Loading speech model… ${percent}% (one-time download, cached after)`
+            );
+          },
         });
+        const wordTimings = detection.words;
 
-        const dictionaryPrompt = buildWhisperPrompt(dictionary);
-
-        const res = await fetch("/api/transcribe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            blobUrl: blob.url,
-            apiKey,
-            prompt: dictionaryPrompt || undefined,
-            filename: uploadFile.name,
-          }),
-        });
-
-        if (!res.ok) {
-          // The error body isn't always JSON: a platform-level rejection
-          // (413 body-too-large, a 502/504 gateway error, ...) can return
-          // plain text or an HTML page before our route handler runs at all.
-          const text = await res.text().catch(() => "");
-          let message = `Transcription failed (${res.status})`;
-          try {
-            const parsed = JSON.parse(text);
-            message = parsed.error || message;
-          } catch {
-            if (text) message = `${message}: ${text.slice(0, 200)}`;
-          }
-          throw new Error(message);
+        if (wordTimings.length === 0) {
+          throw new Error("No speech detected in this video");
         }
 
-        const data = await res.json();
+        // Whisper returns word-level chunks only. Synthesize sentence-ish
+        // segments (punctuation or ~12 words) so the transcript keeps the
+        // segment grouping the rest of the app already understands.
+        const segmentInput: Array<{ text: string; start: number; end: number }> = [];
+        let bucket: typeof wordTimings = [];
+        const flush = () => {
+          if (bucket.length === 0) return;
+          segmentInput.push({
+            text: bucket.map((w) => w.word).join(" "),
+            start: bucket[0].start,
+            end: bucket[bucket.length - 1].end,
+          });
+          bucket = [];
+        };
+        for (const word of wordTimings) {
+          bucket.push(word);
+          if (bucket.length >= 12 || /[.!?]$/.test(word.word)) flush();
+        }
+        flush();
+
         const { words: rawWords, parsedSegments } = parseSegmentsToWords(
-          data.segments || [],
-          // Groq returns real per-word timestamps at the top level — use them
-          // as the primary timing source instead of even-splitting segments.
-          data.words
+          segmentInput,
+          wordTimings
         );
-        // The Whisper prompt above only biases recognition. This contextual
-        // cleanup pass catches one-off ASR errors the dictionary can't know
-        // about; it is strictly 1:1 and fully fail-open, so a rejection or
-        // failure leaves the transcript untouched.
-        const cleanedWords = await applyTranscriptCleanup(rawWords);
-        // The user dictionary is user-authoritative and always wins — it must
-        // run after the cleanup pass and override anything the LLM decided.
-        const words = applyDictionary(cleanedWords, dictionary);
-        // Both correction passes replace Word objects, so parsedSegments
-        // (built from the same raw objects) would hold stale pre-cleanup text
-        // if kept as-is. Rebuild every segment's words from the final words by
-        // id so result.words and result.segments[*].words never diverge.
+        // The dictionary is user-authoritative. The old Groq LLM cleanup pass
+        // is disabled now that transcription is client-only and keyless.
+        const words = applyDictionary(rawWords, dictionary);
         const finalWordById = new Map(words.map((w) => [w.id, w]));
         const segments = parsedSegments.map((seg) => ({
           ...seg,
@@ -497,21 +424,20 @@ export default function Editor() {
           globalStyle.maxWordsPerGroup
         );
 
-        // Groq's reported duration can drift from the actual video length
-        // (e.g. silent tails, container quirks). Anchor the timeline to the
-        // real duration so captions and scrubbing line up with playback.
-        let duration = data.duration || 0;
+        // Anchor the timeline to the real video duration so captions and
+        // scrubbing line up with playback (silent tails, container quirks).
+        let duration = wordTimings[wordTimings.length - 1]?.end || 0;
         try {
           const real = await getVideoDuration(file);
           // video.duration is Infinity for container-less recordings (e.g.
           // MediaRecorder WebM); never let that poison the timeline.
           if (Number.isFinite(real) && real > 0) duration = real;
         } catch {
-          // fall back to the API-reported duration
+          // fall back to the last word's end
         }
 
         const result: TranscriptionResult = {
-          language: data.language || "en",
+          language: detection.language,
           duration,
           segments,
           words,
@@ -526,7 +452,6 @@ export default function Editor() {
       }
     },
     [
-      apiKey,
       dictionary,
       setVideoFile,
       setTranscription,
@@ -566,9 +491,7 @@ export default function Editor() {
           )}
         </div>
         <div className="flex items-center gap-3">
-          {/* Groq key now comes from the server env var (GROQ_API_KEY) —
-              no need to expose a key field to end users. */}
-          {/* <ApiKeyInput onKeySet={setApiKey} /> */}
+          {/* Transcription runs entirely in the browser now — no API key. */}
           <ExportPanel />
           <div className="flex items-center gap-1">
             <button
