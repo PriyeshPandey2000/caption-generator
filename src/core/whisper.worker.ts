@@ -60,9 +60,9 @@ async function loadTranscriber(): Promise<Transcriber> {
       try {
         const fn = await pipeline("automatic-speech-recognition", MODEL_ID, {
           device: "webgpu",
-          // Matches the upstream transformers.js Whisper demo: fp32 encoder
-          // keeps accuracy, q4 decoder keeps the download and VRAM sane.
-          dtype: { encoder_model: "fp32", decoder_model_merged: "q4" },
+          // q4 on both halves: the fp32 encoder alone was ~1.2GB and caused
+          // tab crashes before transcription started. This pair is ~650MB.
+          dtype: { encoder_model: "q4", decoder_model_merged: "q4" },
           progress_callback: forwardProgress,
         });
         post({ type: "status", message: "Compiling shaders and warming up model…" });
