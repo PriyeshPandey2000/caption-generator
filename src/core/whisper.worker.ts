@@ -20,13 +20,23 @@ env.allowLocalModels = false;
 const MODEL_ID = "onnx-community/whisper-small_timestamped";
 const SAMPLE_RATE = 16_000;
 
+// transformers.js leaks GPU memory per decoded 30s chunk on WebGPU (upstream
+// issues #860/#1739, still open). Keep GPU work to short clips; long audio
+// uses the CPU backend, which has no such leak.
+const WEBGPU_SAFE_SECONDS = 2 * 60;
+
 type Device = "webgpu" | "wasm";
+
+interface TranscriberOutput {
+  text: string;
+  chunks?: Array<{ text: string; timestamp: [number, number] }>;
+}
 
 interface Transcriber {
   fn: (
     audio: Float32Array,
     options: Record<string, unknown>
-  ) => Promise<{ text: string; chunks?: Array<{ text: string; timestamp: [number, number] }> }>;
+  ) => Promise<TranscriberOutput>;
   device: Device;
 }
 
@@ -54,11 +64,17 @@ function forwardProgress(info: ProgressInfo): void {
   });
 }
 
-async function loadTranscriber(): Promise<Transcriber> {
-  if (transcriberPromise) return transcriberPromise;
+async function loadTranscriber(forceWasm: boolean): Promise<Transcriber> {
+  if (transcriberPromise) {
+    const loaded = await transcriberPromise;
+    if (!forceWasm || loaded.device === "wasm") return loaded;
+    // A previous short clip loaded WebGPU. Drop the reference and load the CPU
+    // model for this long clip; the worker is unloaded after the job anyway.
+    transcriberPromise = null;
+  }
 
   transcriberPromise = (async () => {
-    if (hasWebGPU()) {
+    if (!forceWasm && hasWebGPU()) {
       try {
         const fn = await pipeline("automatic-speech-recognition", MODEL_ID, {
           device: "webgpu",
@@ -131,18 +147,44 @@ async function run({
   duration: number;
   language?: string;
 }): Promise<void> {
-  const { fn, device } = await loadTranscriber();
+  const longClip = duration > WEBGPU_SAFE_SECONDS;
+  let { fn, device } = await loadTranscriber(longClip);
 
-  post({ type: "status", message: `Transcribing on ${device}…` });
+  post({
+    type: "status",
+    message:
+      longClip && device === "wasm"
+        ? "Long clip — using the CPU backend to avoid the WebGPU memory leak. This can take a while…"
+        : `Transcribing on ${device}…`,
+  });
 
-  // Multilingual model: when no language is supplied, Whisper detects it from
-  // the audio. Passing one explicitly skips detection for that language.
-  const output = await fn(audio, {
-    return_timestamps: "word",
+  const options = {
+    return_timestamps: "word" as const,
     chunk_length_s: 30,
     stride_length_s: 5,
     ...(language ? { language, task: "transcribe" } : {}),
-  });
+  };
+
+  // Multilingual model: when no language is supplied, Whisper detects it from
+  // the audio. Passing one explicitly skips detection for that language.
+  let output: TranscriberOutput;
+  try {
+    output = await fn(audio, options);
+  } catch (err) {
+    if (device !== "webgpu") throw err;
+    // Short clips can still hit the GPU leak. Retry this one on CPU instead of
+    // failing the whole upload.
+    post({
+      type: "warning",
+      message: `WebGPU failed, retrying on CPU: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    });
+    post({ type: "status", message: "GPU ran out of memory — retrying on CPU…" });
+    transcriberPromise = null;
+    ({ fn, device } = await loadTranscriber(true));
+    output = await fn(audio, options);
+  }
 
   const words = toWordTimings(output.chunks, duration);
 
