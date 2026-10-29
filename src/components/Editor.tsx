@@ -78,9 +78,12 @@ function getVideoDuration(file: File): Promise<number> {
 }
 
 // Transcription runs fully in the browser now, so there is no upload or
-// serverless body limit. Keep a sanity cap anyway: the container is buffered
-// while audio is decoded, and large files can exhaust the tab's memory.
-const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
+// serverless body limit. Keep sanity caps anyway: the container is buffered
+// while audio is decoded, and decoded PCM grows with duration. 300MB covers a
+// normal high-bitrate short/medium clip; 30 minutes keeps the PCM + model
+// under the tab's memory budget.
+const MAX_UPLOAD_BYTES = 300 * 1024 * 1024;
+const MAX_TRANSCRIBE_SECONDS = 30 * 60;
 
 export default function Editor() {
   const [activePanel, setActivePanel] = useState<Panel>("presets");
@@ -370,6 +373,21 @@ export default function Editor() {
           );
         }
 
+        // Check duration before decoding. Metadata can be unavailable for some
+        // container-less recordings, so a failed read is not fatal.
+        let knownDuration: number | null = null;
+        try {
+          const real = await getVideoDuration(file);
+          if (Number.isFinite(real) && real > 0) knownDuration = real;
+        } catch {
+          // fall back to the last transcribed word's end below
+        }
+        if (knownDuration && knownDuration > MAX_TRANSCRIBE_SECONDS) {
+          throw new Error(
+            `Video is too long to transcribe in the browser (${Math.ceil(knownDuration / 60)} min, limit ${MAX_TRANSCRIBE_SECONDS / 60} min). Trim it to ${MAX_TRANSCRIBE_SECONDS / 60} minutes or split it into parts, then try again. The video stays on your device.`
+          );
+        }
+
         setTranscribeStatus("Extracting audio…");
         // Aggregate model-load progress can still dip when a shard joins the
         // total mid-download. Show the highest value seen so the number only
@@ -435,15 +453,9 @@ export default function Editor() {
 
         // Anchor the timeline to the real video duration so captions and
         // scrubbing line up with playback (silent tails, container quirks).
-        let duration = wordTimings[wordTimings.length - 1]?.end || 0;
-        try {
-          const real = await getVideoDuration(file);
-          // video.duration is Infinity for container-less recordings (e.g.
-          // MediaRecorder WebM); never let that poison the timeline.
-          if (Number.isFinite(real) && real > 0) duration = real;
-        } catch {
-          // fall back to the last word's end
-        }
+        // Reuse the metadata read from the pre-flight check.
+        const duration =
+          knownDuration ?? (wordTimings[wordTimings.length - 1]?.end || 0);
 
         const result: TranscriptionResult = {
           language: detection.language,

@@ -15,7 +15,9 @@ const ctx = self as unknown as {
 // stays responsive while a long clip transcribes.
 env.allowLocalModels = false;
 
-const MODEL_ID = "onnx-community/whisper-medium_timestamped";
+// Small is the browser default: ~3x faster and ~2.7x smaller than medium,
+// which matters because word timestamps need an extra decoder pass per chunk.
+const MODEL_ID = "onnx-community/whisper-small_timestamped";
 const SAMPLE_RATE = 16_000;
 
 type Device = "webgpu" | "wasm";
@@ -60,8 +62,8 @@ async function loadTranscriber(): Promise<Transcriber> {
       try {
         const fn = await pipeline("automatic-speech-recognition", MODEL_ID, {
           device: "webgpu",
-          // q4 on both halves: the fp32 encoder alone was ~1.2GB and caused
-          // tab crashes before transcription started. This pair is ~650MB.
+          // q4 everywhere: encoder ~63MB, decoder ~223MB. Keeps the model
+          // small enough for integrated GPUs while staying fast on WebGPU.
           dtype: { encoder_model: "q4", decoder_model_merged: "q4" },
           progress_callback: forwardProgress,
         });
